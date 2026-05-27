@@ -1,0 +1,38 @@
+{
+  "active_plan": "/home/huu/Documents/ki8/bigData/TFT_analytics/.sisyphus/plans/tft-analytics-system.md",
+  "started_at": "2026-05-27T12:31:40.241Z",
+  "session_ids": [
+    "ses_19b4b3097ffeiqHyjwNne2Qmmx"
+  ],
+  "session_origins": {
+    "ses_19b4b3097ffeiqHyjwNne2Qmmx": "direct"
+  },
+  "plan_name": "tft-analytics-system",
+  "agent": "atlas",
+  "task_sessions": {
+    "todo:1": {
+      "task_key": "todo:1",
+      "task_label": "1",
+      "task_title": "**Project Cleanup & Scaffolding**",
+      "session_id": "ses_196736304ffeHPKZmZ5BOelhTM",
+      "agent": "build",
+      "updated_at": "2026-05-27T13:13:54.314Z"
+    },
+    "todo:3": {
+      "task_key": "todo:3",
+      "task_label": "3",
+      "task_title": "**Spark ETL Job - Core Metrics Calculation**",
+      "session_id": "ses_1966c3a96ffe78DRBr73GuyfUg",
+      "agent": "build",
+      "updated_at": "2026-05-27T13:18:34.537Z"
+    },
+    "todo:7": {
+      "task_key": "todo:7",
+      "task_label": "7",
+      "task_title": "**FastAPI Analytics Endpoints**",
+      "session_id": "ses_1966613e3ffelc0KQwSfvxdmOA",
+      "agent": "build",
+      "updated_at": "2026-05-27T13:26:05.972Z"
+    }
+  }
+}

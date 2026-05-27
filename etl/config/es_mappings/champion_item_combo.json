@@ -1,0 +1,13 @@
+{
+  "mappings": {
+    "properties": {
+      "champion_id": {"type": "keyword"},
+      "item_name": {"type": "keyword"},
+      "total_games": {"type": "integer"},
+      "wins": {"type": "integer"},
+      "top4_count": {"type": "integer"},
+      "avg_placement": {"type": "float"},
+      "last_updated": {"type": "date"}
+    }
+  }
+}

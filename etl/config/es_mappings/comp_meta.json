@@ -1,0 +1,16 @@
+{
+  "mappings": {
+    "properties": {
+      "comp_signature": {"type": "keyword"},
+      "traits": {"type": "nested", "properties": {"name": {"type": "keyword"}, "tier_current": {"type": "integer"}}},
+      "core_units": {"type": "keyword"},
+      "total_games": {"type": "integer"},
+      "wins": {"type": "integer"},
+      "top4_count": {"type": "integer"},
+      "avg_placement": {"type": "float"},
+      "win_rate": {"type": "float"},
+      "top4_rate": {"type": "float"},
+      "last_updated": {"type": "date"}
+    }
+  }
+}
