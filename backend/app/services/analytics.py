@@ -51,81 +51,27 @@ async def get_player_stats(es: AsyncElasticsearch, puuid: str) -> Optional[Dict]
 
 
 async def get_player_champions(es: AsyncElasticsearch, puuid: str) -> List[Dict]:
-    query = {"term": {"puuid": puuid}}
-    resp = await es_search(es, "champion_stats", query, size=100)
-    return [hit["_source"] for hit in resp["hits"]["hits"]]
+    query = {"term": {"puuid.keyword": puuid}}
+    resp = await es_search(es, "player_champion_stats", query, size=100)
+    results = []
+    for hit in resp["hits"]["hits"]:
+        src = hit["_source"]
+        if "character_id" in src and "champion_id" not in src:
+            src["champion_id"] = src["character_id"]
+        results.append(src)
+    return results
 
 
 async def get_player_traits(es: AsyncElasticsearch, puuid: str) -> List[Dict]:
-    query = {"term": {"puuid": puuid}}
-    resp = await es_search(es, "champion_trait_combo", query, size=100)
-    trait_map: Dict[str, Dict] = {}
-    for hit in resp["hits"]["hits"]:
-        src = hit["_source"]
-        trait = src["trait_name"]
-        if trait not in trait_map:
-            trait_map[trait] = {
-                "trait_name": trait,
-                "total_games": 0,
-                "wins": 0,
-                "top4_count": 0,
-                "placements": [],
-            }
-        trait_map[trait]["total_games"] += src["total_games"]
-        trait_map[trait]["wins"] += src["wins"]
-        trait_map[trait]["top4_count"] += src["top4_count"]
-        trait_map[trait]["placements"].extend(
-            [src["avg_placement"]] * src["total_games"]
-        )
-    results = []
-    for t in trait_map.values():
-        n = t["total_games"]
-        results.append({
-            "trait_name": t["trait_name"],
-            "total_games": n,
-            "wins": t["wins"],
-            "top4_count": t["top4_count"],
-            "avg_placement": sum(t["placements"]) / n if n else 0,
-            "win_rate": t["wins"] / n if n else 0,
-        })
-    results.sort(key=lambda x: x["total_games"], reverse=True)
-    return results
+    query = {"term": {"puuid.keyword": puuid}}
+    resp = await es_search(es, "player_trait_stats", query, size=100)
+    return [hit["_source"] for hit in resp["hits"]["hits"]]
 
 
 async def get_player_items(es: AsyncElasticsearch, puuid: str) -> List[Dict]:
-    query = {"term": {"puuid": puuid}}
-    resp = await es_search(es, "champion_item_combo", query, size=200)
-    item_map: Dict[str, Dict] = {}
-    for hit in resp["hits"]["hits"]:
-        src = hit["_source"]
-        item = src["item_name"]
-        if item not in item_map:
-            item_map[item] = {
-                "item_name": item,
-                "total_games": 0,
-                "wins": 0,
-                "top4_count": 0,
-                "placements": [],
-            }
-        item_map[item]["total_games"] += src["total_games"]
-        item_map[item]["wins"] += src["wins"]
-        item_map[item]["top4_count"] += src["top4_count"]
-        item_map[item]["placements"].extend(
-            [src["avg_placement"]] * src["total_games"]
-        )
-    results = []
-    for t in item_map.values():
-        n = t["total_games"]
-        results.append({
-            "item_name": t["item_name"],
-            "total_games": n,
-            "wins": t["wins"],
-            "top4_count": t["top4_count"],
-            "avg_placement": sum(t["placements"]) / n if n else 0,
-            "win_rate": t["wins"] / n if n else 0,
-        })
-    results.sort(key=lambda x: x["total_games"], reverse=True)
-    return results
+    query = {"term": {"puuid.keyword": puuid}}
+    resp = await es_search(es, "player_item_stats", query, size=200)
+    return [hit["_source"] for hit in resp["hits"]["hits"]]
 
 
 async def search_players(es: AsyncElasticsearch, name: str, size: int = 20) -> List[Dict]:
@@ -149,12 +95,20 @@ async def get_compositions(
         sort=[{sort_field: {"order": sort_order}}],
     )
     total = resp["hits"]["total"]["value"]
-    items = [hit["_source"] for hit in resp["hits"]["hits"]]
+    items = []
+    for hit in resp["hits"]["hits"]:
+        src = hit["_source"]
+        if "signature" in src and "comp_signature" not in src:
+            src["comp_signature"] = src["signature"]
+        items.append(src)
     return items, total
 
 
 async def get_comp_detail(es: AsyncElasticsearch, comp_signature: str) -> Optional[Dict]:
-    return await es_get_by_id(es, "comp_meta", "comp_signature", comp_signature)
+    res = await es_get_by_id(es, "comp_meta", "signature", comp_signature)
+    if res and "signature" in res and "comp_signature" not in res:
+        res["comp_signature"] = res["signature"]
+    return res
 
 
 async def get_all_champions(
@@ -169,39 +123,47 @@ async def get_all_champions(
         sort=[{sort_field: {"order": sort_order}}],
     )
     total = resp["hits"]["total"]["value"]
-    items = [hit["_source"] for hit in resp["hits"]["hits"]]
+    items = []
+    for hit in resp["hits"]["hits"]:
+        src = hit["_source"]
+        if "character_id" in src and "champion_id" not in src:
+            src["champion_id"] = src["character_id"]
+        items.append(src)
     return items, total
 
 
 async def get_champion_detail(es: AsyncElasticsearch, champion_id: str) -> Optional[Dict]:
-    return await es_get_by_id(es, "champion_stats", "champion_id", champion_id)
+    res = await es_get_by_id(es, "champion_stats", "character_id", champion_id)
+    if res and "character_id" in res and "champion_id" not in res:
+        res["champion_id"] = res["character_id"]
+    return res
 
 
 async def get_champion_items(es: AsyncElasticsearch, champion_id: str) -> List[Dict]:
-    query = {"term": {"champion_id": champion_id}}
+    query = {"term": {"character_id.keyword": champion_id}}
     resp = await es_search(es, "champion_item_combo", query, size=50, sort=[{"total_games": {"order": "desc"}}])
     results = []
     for hit in resp["hits"]["hits"]:
         src = hit["_source"]
         n = src["total_games"]
-        results.append({
-            **src,
-            "win_rate": src["wins"] / n if n else 0,
-        })
+        res = {**src, "win_rate": src["wins"] / n if n else 0}
+        if "character_id" in res and "champion_id" not in res:
+            res["champion_id"] = res["character_id"]
+        results.append(res)
     return results
 
 
 async def get_champion_traits(es: AsyncElasticsearch, champion_id: str) -> List[Dict]:
-    query = {"term": {"champion_id": champion_id}}
+    query = {"term": {"character_id.keyword": champion_id}}
     resp = await es_search(es, "champion_trait_combo", query, size=50, sort=[{"total_games": {"order": "desc"}}])
     results = []
     for hit in resp["hits"]["hits"]:
         src = hit["_source"]
         n = src["total_games"]
-        results.append({
-            **src,
-            "win_rate": src["wins"] / n if n else 0,
-        })
+        res = {**src, "win_rate": src["wins"] / n if n else 0}
+        if "character_id" in res and "champion_id" not in res:
+            res["champion_id"] = res["character_id"]
+        results.append(res)
     return results
 
 
@@ -226,16 +188,16 @@ async def get_item_detail(es: AsyncElasticsearch, item_name: str) -> Optional[Di
 
 
 async def get_item_champions(es: AsyncElasticsearch, item_name: str) -> List[Dict]:
-    query = {"term": {"item_name": item_name}}
+    query = {"term": {"item_name.keyword": item_name}}
     resp = await es_search(es, "champion_item_combo", query, size=50, sort=[{"total_games": {"order": "desc"}}])
     results = []
     for hit in resp["hits"]["hits"]:
         src = hit["_source"]
         n = src["total_games"]
-        results.append({
-            **src,
-            "win_rate": src["wins"] / n if n else 0,
-        })
+        res = {**src, "win_rate": src["wins"] / n if n else 0}
+        if "character_id" in res and "champion_id" not in res:
+            res["champion_id"] = res["character_id"]
+        results.append(res)
     return results
 
 
@@ -246,9 +208,9 @@ async def get_build_recommendations(
 ) -> List[Dict]:
     results = []
     for champ_id in champ_ids:
-        must_clauses: List[Dict] = [{"term": {"champion_id": champ_id}}]
+        must_clauses: List[Dict] = [{"term": {"character_id.keyword": champ_id}}]
         if item_names:
-            must_clauses.append({"terms": {"item_name": item_names}})
+            must_clauses.append({"terms": {"item_name.keyword": item_names}})
         query = {"bool": {"must": must_clauses}}
         resp = await es_search(es, "champion_item_combo", query, size=10, sort=[{"total_games": {"order": "desc"}}])
         items_found = [hit["_source"]["item_name"] for hit in resp["hits"]["hits"]]
@@ -272,13 +234,23 @@ async def get_meta_overview(es: AsyncElasticsearch) -> Dict:
         es, "champion_stats", {"match_all": {}}, size=5,
         sort=[{"win_rate": {"order": "desc"}}],
     )
-    top_champions = [hit["_source"] for hit in champ_resp["hits"]["hits"]]
+    top_champions = []
+    for hit in champ_resp["hits"]["hits"]:
+        src = hit["_source"]
+        if "character_id" in src and "champion_id" not in src:
+            src["champion_id"] = src["character_id"]
+        top_champions.append(src)
 
     comp_resp = await es_search(
         es, "comp_meta", {"match_all": {}}, size=5,
         sort=[{"win_rate": {"order": "desc"}}],
     )
-    top_compositions = [hit["_source"] for hit in comp_resp["hits"]["hits"]]
+    top_compositions = []
+    for hit in comp_resp["hits"]["hits"]:
+        src = hit["_source"]
+        if "signature" in src and "comp_signature" not in src:
+            src["comp_signature"] = src["signature"]
+        top_compositions.append(src)
 
     item_resp = await es_search(
         es, "item_stats", {"match_all": {}}, size=5,

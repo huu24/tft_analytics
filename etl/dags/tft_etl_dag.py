@@ -6,30 +6,36 @@ from airflow.operators.dummy import DummyOperator
 
 
 def check_kafka_topic():
-    from kafka import KafkaConsumer
-    import socket
+    from minio import Minio
+    import os
     
-    bootstrap_servers = 'localhost:9092'
-    topic = 'tft-raw-matches'
+    endpoint = os.getenv("MINIO_ENDPOINT", "http://minio:9000")
+    # Clean the endpoint for Minio library connect
+    endpoint_clean = endpoint.replace("http://", "").replace("https://", "")
+    access_key = os.getenv("MINIO_ACCESS_KEY", "admin")
+    secret_key = os.getenv("MINIO_SECRET_KEY", "password123")
+    bucket = os.getenv("MINIO_BUCKET", "lakehouse-bucket")
     
     try:
-        consumer = KafkaConsumer(
-            topic,
-            bootstrap_servers=bootstrap_servers,
-            consumer_timeout_ms=5000,
-            auto_offset_reset='earliest'
+        print(f"Connecting to MinIO at: {endpoint_clean}")
+        client = Minio(
+            endpoint_clean,
+            access_key=access_key,
+            secret_key=secret_key,
+            secure=False
         )
         
-        messages = list(consumer)
-        consumer.close()
-        
-        if len(messages) > 0:
-            print(f"Found {len(messages)} messages in topic {topic}")
+        if not client.bucket_exists(bucket):
+            raise Exception(f"Bucket '{bucket}' does not exist")
+            
+        objects = list(client.list_objects(bucket, prefix="tft-raw/", recursive=True))
+        if len(objects) > 0:
+            print(f"✅ Success: Found {len(objects)} match JSON files in MinIO bucket '{bucket}' under 'tft-raw/'")
             return True
         else:
-            raise Exception(f"No messages found in topic {topic}")
+            raise Exception(f"No match JSON files found in MinIO bucket '{bucket}' under 'tft-raw/'")
     except Exception as e:
-        raise Exception(f"Kafka topic check failed: {str(e)}")
+        raise Exception(f"MinIO raw match check failed: {str(e)}")
 
 
 def verify_es_indices():
@@ -86,7 +92,7 @@ with DAG(
     
     run_spark_etl = BashOperator(
         task_id='run_spark_etl',
-        bash_command='spark-submit etl/spark_jobs/tft_etl.py',
+        bash_command='spark-submit --packages org.apache.hadoop:hadoop-aws:3.3.4,org.elasticsearch:elasticsearch-spark-30_2.12:8.13.0 etl/spark_jobs/tft_etl.py',
     )
     
     verify_es_indices = PythonOperator(

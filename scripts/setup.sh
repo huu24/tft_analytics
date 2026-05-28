@@ -17,13 +17,13 @@ if ! command -v docker &> /dev/null; then
   exit 1
 fi
 
-if ! docker-compose version &> /dev/null; then
-  echo "ERROR: docker-compose is not installed."
+if ! docker compose version &> /dev/null; then
+  echo "ERROR: docker compose is not installed."
   exit 1
 fi
 
 echo "Starting infrastructure (Elasticsearch, Redis, Postgres, MinIO)..."
-docker-compose up -d elasticsearch kibana redis postgres minio minio-init
+docker compose up -d elasticsearch kibana redis postgres minio minio-init
 
 echo "Waiting for Elasticsearch to be ready..."
 for i in $(seq 1 30); do
@@ -39,20 +39,14 @@ for i in $(seq 1 30); do
 done
 
 echo "Initializing Elasticsearch indices..."
-if command -v python3 &> /dev/null; then
-  python3 etl/scripts/init_es.py
-elif command -v python &> /dev/null; then
-  python etl/scripts/init_es.py
-else
-  echo "WARNING: Python not found. Run 'make init-es' manually after installing Python."
-fi
+docker compose run --rm -v "$PROJECT_DIR/etl:/app/etl" backend python etl/scripts/init_es.py --host elasticsearch
 
 echo "Starting all services..."
-docker-compose up -d --build
+docker compose up -d --build
 
 echo "Waiting for Airflow to initialize..."
 sleep 15
-docker-compose exec airflow-webserver airflow dags unpause tft_analytics_etl 2>/dev/null || true
+docker compose exec airflow-webserver airflow dags unpause tft_analytics_etl 2>/dev/null || true
 
 echo ""
 echo "=== TFT Analytics is running ==="

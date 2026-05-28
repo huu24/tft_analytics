@@ -44,3 +44,7 @@ logs/
 # Sisyphus
 .sisyphus/evidence/
 .sisyphus/notepads/
+
+
+puuids.json
+match_data.json

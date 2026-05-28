@@ -1,7 +1,10 @@
 version: "3.8"
 
 x-airflow-common: &airflow-common
-  image: apache/airflow:2.8.1-python3.11
+  build:
+    context: .
+    dockerfile: Dockerfile.airflow
+  image: tft-airflow-spark:2.8.1
   env_file: .env
   networks:
     - tft-network
@@ -13,6 +16,7 @@ x-airflow-common: &airflow-common
     AIRFLOW__CORE__FERNET_KEY: ""
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: ${AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION}
     AIRFLOW__CORE__LOAD_EXAMPLES: ${AIRFLOW__CORE__LOAD_EXAMPLES}
+    _PIP_ADDITIONAL_REQUIREMENTS: "kafka-python-ng elasticsearch minio pyspark==3.5.1"
   volumes:
     - ./etl/dags:/opt/airflow/dags
     - ./etl/config:/opt/airflow/config
@@ -33,7 +37,7 @@ services:
     environment:
       - discovery.type=single-node
       - xpack.security.enabled=false
-      - ES_JAVA_OPTS=-Xms1g -Xmx1g
+      - ES_JAVA_OPTS=-Xms256m -Xmx256m
     ports:
       - "9200:9200"
     volumes:
@@ -45,25 +49,25 @@ services:
       retries: 10
       start_period: 30s
 
-  # ── Kibana ──
-  kibana:
-    image: docker.elastic.co/kibana/kibana:8.13.0
-    container_name: tft-kibana
-    networks:
-      - tft-network
-    environment:
-      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
-    ports:
-      - "5601:5601"
-    depends_on:
-      elasticsearch:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "curl -s http://localhost:5601/api/status | grep -q 'available'"]
-      interval: 15s
-      timeout: 10s
-      retries: 10
-      start_period: 30s
+#   # ── Kibana ──
+#   kibana:
+#     image: docker.elastic.co/kibana/kibana:8.13.0
+#     container_name: tft-kibana
+#     networks:
+#       - tft-network
+#     environment:
+#       - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+#     ports:
+#       - "5601:5601"
+#     depends_on:
+#       elasticsearch:
+#         condition: service_healthy
+#     healthcheck:
+#       test: ["CMD-SHELL", "curl -s http://localhost:5601/api/status | grep -q 'available'"]
+#       interval: 15s
+#       timeout: 10s
+#       retries: 10
+#       start_period: 30s
 
   # ── MinIO (S3-compatible storage) ──
   minio:
@@ -198,53 +202,53 @@ services:
           --role Admin || true
     restart: "no"
 
-  # ── Spark Master ──
-  spark-master:
-    image: apache/spark:3.5.1
-    container_name: tft-spark-master
-    networks:
-      - tft-network
-    environment:
-      - SPARK_MASTER_PORT=7077
-      - SPARK_MASTER_WEBUI_PORT=8080
-    ports:
-      - "7077:7077"
-      - "8081:8080"
-    command: >
-      /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master
-      --host spark-master
-      --port 7077
-      --webui-port 8080
-    healthcheck:
-      test: ["CMD-SHELL", "curl -s http://localhost:8080/json/ | grep -q 'alive' || exit 0"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 15s
-
-  # ── Spark Worker ──
-  spark-worker:
-    image: apache/spark:3.5.1
-    container_name: tft-spark-worker
-    networks:
-      - tft-network
-    environment:
-      - SPARK_WORKER_CORES=2
-      - SPARK_WORKER_MEMORY=2G
-      - SPARK_WORKER_PORT=8881
-      - SPARK_WORKER_WEBUI_PORT=8081
-    depends_on:
-      - spark-master
-    command: >
-      /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker
-      spark://spark-master:7077
-      --webui-port 8081
-    healthcheck:
-      test: ["CMD-SHELL", "curl -s http://localhost:8081/json/ | grep -q 'alive' || exit 0"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 15s
+#   # ── Spark Master ──
+#   spark-master:
+#     image: apache/spark:3.5.1
+#     container_name: tft-spark-master
+#     networks:
+#       - tft-network
+#     environment:
+#       - SPARK_MASTER_PORT=7077
+#       - SPARK_MASTER_WEBUI_PORT=8080
+#     ports:
+#       - "7077:7077"
+#       - "8081:8080"
+#     command: >
+#       /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master
+#       --host spark-master
+#       --port 7077
+#       --webui-port 8080
+#     healthcheck:
+#       test: ["CMD-SHELL", "curl -s http://localhost:8080/json/ | grep -q 'alive' || exit 0"]
+#       interval: 10s
+#       timeout: 5s
+#       retries: 5
+#       start_period: 15s
+# 
+#   # ── Spark Worker ──
+#   spark-worker:
+#     image: apache/spark:3.5.1
+#     container_name: tft-spark-worker
+#     networks:
+#       - tft-network
+#     environment:
+#       - SPARK_WORKER_CORES=2
+#       - SPARK_WORKER_MEMORY=2G
+#       - SPARK_WORKER_PORT=8881
+#       - SPARK_WORKER_WEBUI_PORT=8081
+#     depends_on:
+#       - spark-master
+#     command: >
+#       /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker
+#       spark://spark-master:7077
+#       --webui-port 8081
+#     healthcheck:
+#       test: ["CMD-SHELL", "curl -s http://localhost:8081/json/ | grep -q 'alive' || exit 0"]
+#       interval: 10s
+#       timeout: 5s
+#       retries: 5
+#       start_period: 15s
 
   # ── Backend API ──
   backend:
@@ -267,7 +271,7 @@ services:
       elasticsearch:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health/health || exit 1"]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/health')\" || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -287,7 +291,7 @@ services:
       backend:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:80 || exit 1"]
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1/ || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -312,6 +316,31 @@ services:
     depends_on:
       elasticsearch:
         condition: service_healthy
+
+  # ── TFT Auto Crawler ──
+  crawler:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: tft-crawler
+    networks:
+      - tft-network
+    volumes:
+      - ./puuids.json:/app/puuids.json
+      - ./match_data.json:/app/match_data.json
+      - ./tft_crawler_auto.py:/app/tft_crawler_auto.py
+    environment:
+      API_KEY: ${API_KEY}
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      MINIO_BUCKET: ${MINIO_BUCKET:-lakehouse-bucket}
+    depends_on:
+      minio:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    command: python -u tft_crawler_auto.py
 
 networks:
   tft-network:

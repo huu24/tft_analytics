@@ -154,7 +154,7 @@ def calc_player_stats(participants_df):
     base = base.withColumn(
         "flex_score",
         F.when(
-            (F.col("total_trait_count").isNotNull()) & (F.col("total_games") > 0),
+            (F.col("total_trait_games").isNotNull()) & (F.col("total_games") > 0),
             1.0 - (F.col("max_trait_count") / F.col("total_games"))
         ).otherwise(0.0)
     )
@@ -342,15 +342,99 @@ def calc_champion_trait_combo(participants_df):
     return stats.select("character_id", "trait_name", "total_games", "wins", "top4_count", "avg_placement")
 
 
-def write_to_es(df, index_name):
-    (
+def calc_player_champion_stats(participants_df):
+    units_df = (
+        participants_df
+        .select("puuid", "match_id", "placement", F.explode("units").alias("unit"))
+        .select(
+            "puuid", "match_id", "placement",
+            F.col("unit.character_id").alias("character_id")
+        )
+        .filter(F.col("character_id").isNotNull())
+        .dropDuplicates(["puuid", "match_id", "character_id"])
+    )
+    stats = units_df.groupBy("puuid", "character_id").agg(
+        F.count("*").alias("total_games"),
+        F.sum(F.when(F.col("placement") == 1, 1).otherwise(0)).alias("wins"),
+        F.sum(F.when(F.col("placement") <= 4, 1).otherwise(0)).alias("top4_count"),
+        F.avg("placement").alias("avg_placement"),
+    )
+    stats = stats.withColumn(
+        "win_rate",
+        F.when(F.col("total_games") > 0, F.col("wins") / F.col("total_games")).otherwise(0.0)
+    )
+    stats = stats.withColumn(
+        "top4_rate",
+        F.when(F.col("total_games") > 0, F.col("top4_count") / F.col("total_games")).otherwise(0.0)
+    )
+    return stats.select(
+        "puuid", "character_id", "total_games", "wins", "top4_count", "avg_placement",
+        "win_rate", "top4_rate"
+    )
+
+
+def calc_player_trait_stats(participants_df):
+    traits_df = (
+        participants_df
+        .select("puuid", "match_id", "placement", F.explode("traits").alias("trait"))
+        .filter(F.col("trait.style") >= 1)
+        .select(
+            "puuid", "match_id", "placement",
+            F.col("trait.name").alias("trait_name")
+        )
+        .dropDuplicates(["puuid", "match_id", "trait_name"])
+    )
+    stats = traits_df.groupBy("puuid", "trait_name").agg(
+        F.count("*").alias("total_games"),
+        F.sum(F.when(F.col("placement") == 1, 1).otherwise(0)).alias("wins"),
+        F.sum(F.when(F.col("placement") <= 4, 1).otherwise(0)).alias("top4_count"),
+        F.avg("placement").alias("avg_placement"),
+    )
+    stats = stats.withColumn(
+        "win_rate",
+        F.when(F.col("total_games") > 0, F.col("wins") / F.col("total_games")).otherwise(0.0)
+    )
+    return stats.select(
+        "puuid", "trait_name", "total_games", "wins", "top4_count", "avg_placement", "win_rate"
+    )
+
+
+def calc_player_item_stats(participants_df):
+    items_df = (
+        participants_df
+        .select("puuid", "match_id", "placement", F.explode("units").alias("unit"))
+        .select(
+            "puuid", "match_id", "placement",
+            F.explode(F.col("unit.itemNames")).alias("item_name")
+        )
+        .filter(F.col("item_name").isNotNull() & (F.col("item_name") != ""))
+        .dropDuplicates(["puuid", "match_id", "item_name"])
+    )
+    stats = items_df.groupBy("puuid", "item_name").agg(
+        F.count("*").alias("total_games"),
+        F.sum(F.when(F.col("placement") == 1, 1).otherwise(0)).alias("wins"),
+        F.sum(F.when(F.col("placement") <= 4, 1).otherwise(0)).alias("top4_count"),
+        F.avg("placement").alias("avg_placement"),
+    )
+    stats = stats.withColumn(
+        "win_rate",
+        F.when(F.col("total_games") > 0, F.col("wins") / F.col("total_games")).otherwise(0.0)
+    )
+    return stats.select(
+        "puuid", "item_name", "total_games", "wins", "top4_count", "avg_placement", "win_rate"
+    )
+
+
+def write_to_es(df, index_name, id_field=None):
+    writer = (
         df.write
         .format("org.elasticsearch.spark.sql")
         .option("es.resource", index_name)
-        .option("es.mapping.id", "")
-        .mode("append")
-        .save()
     )
+    if id_field:
+        writer = writer.option("es.mapping.id", id_field)
+    
+    writer.mode("append").save()
 
 
 def main():
@@ -365,13 +449,21 @@ def main():
         comp_meta = calc_comp_meta(participants_df)
         champion_item_combo = calc_champion_item_combo(participants_df)
         champion_trait_combo = calc_champion_trait_combo(participants_df)
+        
+        player_champion_stats = calc_player_champion_stats(participants_df)
+        player_trait_stats = calc_player_trait_stats(participants_df)
+        player_item_stats = calc_player_item_stats(participants_df)
 
-        write_to_es(player_stats, "player_stats")
-        write_to_es(champion_stats, "champion_stats")
-        write_to_es(item_stats, "item_stats")
-        write_to_es(comp_meta, "comp_meta")
+        write_to_es(player_stats, "player_stats", "puuid")
+        write_to_es(champion_stats, "champion_stats", "character_id")
+        write_to_es(item_stats, "item_stats", "item_name")
+        write_to_es(comp_meta, "comp_meta", "signature")
         write_to_es(champion_item_combo, "champion_item_combo")
         write_to_es(champion_trait_combo, "champion_trait_combo")
+        
+        write_to_es(player_champion_stats, "player_champion_stats")
+        write_to_es(player_trait_stats, "player_trait_stats")
+        write_to_es(player_item_stats, "player_item_stats")
     finally:
         spark.stop()
 
