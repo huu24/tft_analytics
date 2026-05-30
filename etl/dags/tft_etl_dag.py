@@ -3,6 +3,7 @@ from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.operators.bash import BashOperator
 from airflow.operators.dummy import DummyOperator
+import os
 
 
 def check_kafka_topic():
@@ -41,15 +42,19 @@ def check_kafka_topic():
 def verify_es_indices():
     from elasticsearch import Elasticsearch
     
-    es = Elasticsearch(['http://localhost:9200'])
+    es_host = os.environ.get("ES_HOST", "localhost")
+    es_port = os.environ.get("ES_PORT", "9200")
+    
+    # 2. Kết nối động qua mạng Docker (ví dụ: http://elasticsearch:9200)
+    es = Elasticsearch([f'http://{es_host}:{es_port}'])
     
     expected_indices = [
-        'tft-matches',
-        'tft-players',
-        'tft-augments',
-        'tft-traits',
-        'tft-units',
-        'tft-items'
+        "player_stats",
+        "champion_stats",
+        "item_stats",
+        "comp_meta",
+        "champion_item_combo",
+        "champion_trait_combo"
     ]
     
     for index_name in expected_indices:
@@ -92,7 +97,7 @@ with DAG(
     
     run_spark_etl = BashOperator(
         task_id='run_spark_etl',
-        bash_command='spark-submit --packages org.apache.hadoop:hadoop-aws:3.3.4,org.elasticsearch:elasticsearch-spark-30_2.12:8.13.0 etl/spark_jobs/tft_etl.py',
+        bash_command='spark-submit --driver-memory 512m --executor-memory 512m /opt/airflow/etl/spark_jobs/tft_etl.py',
     )
     
     verify_es_indices = PythonOperator(
