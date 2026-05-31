@@ -1,5 +1,6 @@
 import ReactECharts from "echarts-for-react";
 import type { CompSummary } from "@/types/composition";
+import { getCompDisplayName } from "@/utils/displayNames";
 
 interface CompTreemapProps {
   comps: CompSummary[];
@@ -18,7 +19,7 @@ export default function CompTreemap({ comps, onSelect }: CompTreemapProps) {
   const totalGames = comps.reduce((s, c) => s + c.total_games, 0);
 
   const data = comps.map((c) => ({
-    name: c.comp_signature,
+    name: getCompDisplayName(c),
     value: c.total_games,
     pickRate: totalGames > 0 ? c.total_games / totalGames : 0,
     winRate: c.win_rate,

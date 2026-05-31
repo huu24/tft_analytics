@@ -4,6 +4,7 @@ import { BarChart } from "echarts/charts";
 import { TooltipComponent, GridComponent } from "echarts/components";
 import { CanvasRenderer } from "echarts/renderers";
 import type { ItemSummary } from "@/types/items";
+import { getItemDisplayName } from "@/utils/displayNames";
 
 echarts.use([BarChart, TooltipComponent, GridComponent, CanvasRenderer]);
 
@@ -20,7 +21,7 @@ export default function SimilarItemsBar({ allItems, currentItem, currentPlacemen
     .sort((a, b) => a.diff - b.diff)
     .slice(0, 10);
 
-  const names = similar.map((i) => i.item_name);
+  const names = similar.map((i) => getItemDisplayName(i.item_name));
   const placements = similar.map((i) => i.avg_placement);
 
   const option = {

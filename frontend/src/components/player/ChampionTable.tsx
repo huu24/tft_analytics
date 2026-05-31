@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { ChevronUp, ChevronDown } from "lucide-react";
 import type { PlayerChampionStats } from "@/types/player";
+import { getChampionDisplayName } from "@/utils/displayNames";
 
 interface ChampionTableProps {
   champions: PlayerChampionStats[];
@@ -86,10 +87,9 @@ export default function ChampionTable({ champions, onChampionClick }: ChampionTa
               >
                 <td className="px-4 py-2.5 text-white font-medium">
                   <span
-                    title={c.display_name || c.champion_id}
                     className="text-truncate-safe block"
                   >
-                    {c.display_name || c.champion_id}
+                    {c.display_name || getChampionDisplayName(c.champion_id)}
                   </span>
                 </td>
                 <td className="px-4 py-2.5 text-gray-300">{c.total_games}</td>

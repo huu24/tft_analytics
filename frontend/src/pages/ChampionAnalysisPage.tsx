@@ -16,6 +16,7 @@ import BuildStatsTable from "@/components/champions/BuildStatsTable";
 import SynergyGraph from "@/components/champions/SynergyGraph";
 import Breadcrumb from "@/components/Breadcrumb";
 import BackButton from "@/components/BackButton";
+import { getChampionDisplayName } from "@/utils/displayNames";
 
 export default function ChampionAnalysisPage() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -62,7 +63,7 @@ export default function ChampionAnalysisPage() {
     { enabled: !!selected }
   );
 
-  const championName = detail?.display_name || detail?.champion_id || "";
+  const championName = detail?.display_name || getChampionDisplayName(detail?.champion_id || selected?.champion_id || "");
 
   return (
     <div className="space-y-6">
@@ -70,7 +71,7 @@ export default function ChampionAnalysisPage() {
         <Breadcrumb
           items={[
             { label: "Champions" },
-            ...(selected ? [{ label: championName || selected.champion_id }] : []),
+            ...(selected ? [{ label: championName }] : []),
           ]}
         />
         {selected && <BackButton />}

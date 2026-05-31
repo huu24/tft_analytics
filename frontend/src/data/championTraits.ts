@@ -85,7 +85,13 @@ export const CHAMPION_DISPLAY_NAME: Record<string, string> = {
 };
 
 export function getDisplayName(championId: string): string {
-  return CHAMPION_DISPLAY_NAME[championId] ?? championId;
+  return CHAMPION_DISPLAY_NAME[championId] ?? championId
+    .replace(/^TFT\d+_/, "")
+    .replace(/^TFT_/, "")
+    .replace(/_/g, " ")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 export function getChampionTrait(championId: string): string {

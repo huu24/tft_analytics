@@ -1,5 +1,6 @@
 import ReactECharts from "echarts-for-react";
 import type { ChampionDetail } from "@/types/champion";
+import { getChampionDisplayName } from "@/utils/displayNames";
 
 interface ChampionStatsOverviewProps {
   champion: ChampionDetail;
@@ -90,10 +91,9 @@ export default function ChampionStatsOverview({ champion }: ChampionStatsOvervie
     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
       <div className="bg-dark-800 border border-dark-600 rounded-xl p-4 flex flex-col items-center">
         <h3
-          title={champion.display_name || champion.champion_id}
           className="text-truncate-safe w-full text-center text-sm text-gray-400 mb-2"
         >
-          {champion.display_name || champion.champion_id}
+          {champion.display_name || getChampionDisplayName(champion.champion_id)}
         </h3>
         <ReactECharts option={gaugeOption} style={{ width: 180, height: 180 }} />
       </div>

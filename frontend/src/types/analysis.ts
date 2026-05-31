@@ -103,14 +103,3 @@ export interface TraitTier {
   champions: string[];
   active: boolean;
 }
-
-export interface AIRecommendation {
-  champion_id: string;
-  display_name: string;
-  confidence: number;
-}
-
-export interface AIRecommendResponse {
-  recommendations: AIRecommendation[];
-  model_version: string;
-}

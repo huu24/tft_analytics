@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
-import { Search, BarChart3, Sparkles, Crosshair, Bot, Check } from "lucide-react";
+import { Search, BarChart3, Sparkles, Crosshair } from "lucide-react";
 import apiClient from "@/api/client";
 import { useApi } from "@/hooks/useApi";
 import MultiSelectDropdown from "@/components/analysis/MultiSelectDropdown";
@@ -14,9 +14,8 @@ import type {
   ChampionListResponse,
   ItemListResponse,
   ChampionTraitCombo,
-  AIRecommendation,
-  AIRecommendResponse,
 } from "@/types/analysis";
+import { getChampionDisplayName, getItemDisplayName } from "@/utils/displayNames";
 
 export default function GeneralAnalysisPage() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -68,10 +67,6 @@ export default function GeneralAnalysisPage() {
   const handleChampionClick = (championId: string) => {
     navigate(`/champions?champion=${encodeURIComponent(championId)}`);
   };
-  const [aiRecommendations, setAiRecommendations] = useState<AIRecommendation[]>([]);
-  const [aiLoading, setAiLoading] = useState(false);
-  const [aiError, setAiError] = useState<string | null>(null);
-
   const { data: champData, loading: champLoading } =
     useApi<ChampionListResponse>("/champions?limit=200");
   const { data: itemData, loading: itemLoading } =
@@ -79,12 +74,12 @@ export default function GeneralAnalysisPage() {
 
   const championOptions = (champData?.items ?? []).map((c) => ({
     value: c.champion_id,
-    label: c.display_name ?? c.champion_id,
+    label: c.display_name || getChampionDisplayName(c.champion_id),
   }));
 
   const itemOptions = (itemData?.items ?? []).map((i) => ({
     value: i.item_name,
-    label: i.item_name,
+    label: getItemDisplayName(i.item_name),
   }));
 
   const handleAnalyze = useCallback(async () => {
@@ -127,33 +122,6 @@ export default function GeneralAnalysisPage() {
     }
   }, [selectedChampions, selectedItems]);
 
-  const handleAiSuggest = useCallback(async () => {
-    if (selectedChampions.length === 0) return;
-    setAiLoading(true);
-    setAiError(null);
-    setAiRecommendations([]);
-    try {
-      const res = await apiClient.post<AIRecommendResponse>("/recommend", {
-        champion_ids: selectedChampions,
-        item_names: selectedItems.length > 0 ? selectedItems : undefined,
-      });
-      setAiRecommendations(res.data.recommendations);
-    } catch (err) {
-      setAiError(err instanceof Error ? err.message : "AI suggestion failed");
-    } finally {
-      setAiLoading(false);
-    }
-  }, [selectedChampions, selectedItems]);
-
-  const handleUseAiBuild = useCallback(() => {
-    const newChamps = aiRecommendations.map((r) => r.champion_id);
-    setSelectedChampions((prev) => {
-      const combined = new Set([...prev, ...newChamps]);
-      return Array.from(combined);
-    });
-    setAiRecommendations([]);
-  }, [aiRecommendations]);
-
   const hasResults = buildData && buildData.recommendations.length > 0;
   const hasFilters =
     selectedChampions.length > 0 || selectedItems.length > 0;
@@ -191,7 +159,7 @@ export default function GeneralAnalysisPage() {
               loading={itemLoading}
             />
           </div>
-          <div className="flex items-end gap-2">
+          <div className="flex items-end">
             <button
               onClick={handleAnalyze}
               disabled={!hasFilters || analyzing}
@@ -209,23 +177,6 @@ export default function GeneralAnalysisPage() {
                 </>
               )}
             </button>
-            <button
-              onClick={handleAiSuggest}
-              disabled={selectedChampions.length === 0 || aiLoading}
-              className="w-full lg:w-auto px-4 py-2.5 bg-teal/90 hover:bg-teal text-dark-900 font-semibold rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-            >
-              {aiLoading ? (
-                <>
-                  <span className="w-4 h-4 border-2 border-dark-900/30 border-t-dark-900 rounded-full animate-spin" />
-                  Thinking...
-                </>
-              ) : (
-                <>
-                  <Bot className="w-4 h-4" />
-                  AI Suggest
-                </>
-              )}
-            </button>
           </div>
         </div>
 
@@ -235,48 +186,7 @@ export default function GeneralAnalysisPage() {
           </div>
         )}
 
-        {aiError && (
-          <div className="mt-4 px-4 py-2 bg-red-900/20 border border-red-800/50 rounded-lg text-red-400 text-sm">
-            {aiError}
-          </div>
-        )}
       </div>
-
-      {aiRecommendations.length > 0 && (
-        <div className="bg-dark-800 border border-teal/30 rounded-xl p-6">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              <Bot className="w-5 h-5 text-teal" />
-              <h3 className="text-lg font-semibold text-teal">AI Recommendations</h3>
-            </div>
-            <button
-              onClick={handleUseAiBuild}
-              className="px-4 py-1.5 bg-teal/90 hover:bg-teal text-dark-900 text-sm font-semibold rounded-lg transition-colors flex items-center gap-1.5"
-            >
-              <Check className="w-3.5 h-3.5" />
-              Use this build
-            </button>
-          </div>
-          <div className="space-y-3">
-            {aiRecommendations.map((rec) => (
-              <div key={rec.champion_id} className="flex min-w-0 items-center gap-3">
-                <span title={rec.display_name} className="text-truncate-safe w-32 text-sm text-white">
-                  {rec.display_name}
-                </span>
-                <div className="flex-1 h-2 bg-dark-600 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-gradient-to-r from-teal/70 to-teal rounded-full transition-all"
-                    style={{ width: `${rec.confidence * 100}%` }}
-                  />
-                </div>
-                <span className="text-xs text-gray-400 w-14 text-right">
-                  {(rec.confidence * 100).toFixed(1)}%
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       {!hasResults && !analyzing && <EmptyState hasFilters={hasFilters} />}
 

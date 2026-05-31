@@ -34,7 +34,6 @@ export default function ChampionBreakdownTable({ champions, onChampionClick }: C
                 >
                   <td className="py-2 px-3 text-gray-200 font-medium">
                     <span
-                      title={getDisplayName(c.champion_id)}
                       className="text-truncate-safe block"
                     >
                       {getDisplayName(c.champion_id)}

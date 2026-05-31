@@ -1,5 +1,6 @@
 import { Trophy, Target, BarChart3, Gamepad2 } from "lucide-react";
 import type { ItemDetail } from "@/types/items";
+import { getItemDisplayName } from "@/utils/displayNames";
 
 interface ItemStatsOverviewProps {
   item: ItemDetail;
@@ -11,8 +12,8 @@ export default function ItemStatsOverview({ item }: ItemStatsOverviewProps) {
 
   return (
     <div className="bg-dark-800 border border-dark-600 rounded-xl p-6">
-      <h3 title={item.item_name} className="line-clamp-2 text-lg font-bold text-gold mb-4">
-        {item.item_name}
+      <h3 className="line-clamp-2 text-lg font-bold text-gold mb-4">
+        {getItemDisplayName(item.item_name)}
       </h3>
       <div className="flex items-center justify-center gap-8">
         <div className="text-center">

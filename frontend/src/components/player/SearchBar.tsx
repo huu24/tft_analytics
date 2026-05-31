@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { Search, X } from "lucide-react";
 import apiClient from "@/api/client";
 import type { PlayerSearchResult } from "@/types/player";
+import { playerLabel } from "@/utils/playerDisplay";
 
 interface SearchBarProps {
   onSelect: (puuid: string) => void;
@@ -54,7 +55,7 @@ export default function SearchBar({ onSelect }: SearchBarProps) {
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search summoner name..."
+          placeholder="Search player..."
           className="min-w-0 flex-1 bg-transparent text-sm text-white placeholder-gray-500 outline-none"
         />
         {query && (
@@ -66,7 +67,7 @@ export default function SearchBar({ onSelect }: SearchBarProps) {
 
       {open && results.length > 0 && (
         <ul className="absolute z-50 mt-1 w-full bg-dark-700 border border-dark-600 rounded-lg shadow-xl overflow-hidden">
-          {results.map((r) => (
+          {results.map((r, index) => (
             <li key={r.puuid}>
               <button
                 onClick={() => {
@@ -76,8 +77,8 @@ export default function SearchBar({ onSelect }: SearchBarProps) {
                 }}
                 className="w-full min-w-0 text-left px-4 py-2.5 hover:bg-dark-600 transition-colors flex items-center justify-between gap-3"
               >
-                <span title={r.puuid} className="text-truncate-safe text-sm text-white font-medium">
-                  {r.puuid}
+                <span className="text-truncate-safe text-sm text-white font-medium">
+                  {playerLabel(index)}
                 </span>
                 <span className="shrink-0 text-xs text-gray-400">{r.total_games} games</span>
               </button>

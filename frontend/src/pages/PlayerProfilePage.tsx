@@ -85,7 +85,6 @@ export default function PlayerProfilePage() {
       <Breadcrumb
         items={[
           { label: "Player Profile" },
-          ...(puuid ? [{ label: puuid }] : []),
         ]}
       />
 
@@ -96,7 +95,7 @@ export default function PlayerProfilePage() {
       {!puuid && (
         <div className="flex flex-col items-center justify-center py-24 text-gray-500">
           <User className="w-12 h-12 mb-3 opacity-40" />
-          <p className="text-sm">Search for a summoner to view their profile</p>
+          <p className="text-sm">Search for a player to view their profile</p>
         </div>
       )}
 
@@ -120,8 +119,8 @@ export default function PlayerProfilePage() {
                 <User className="w-5 h-5 text-gold" />
               </div>
               <div className="min-w-0">
-                <h2 title={stats.puuid} className="text-truncate-safe text-lg font-bold text-white">
-                  {stats.puuid}
+                <h2 className="text-lg font-bold text-white">
+                  Player Profile
                 </h2>
                 <p className="text-xs text-gray-400">
                   Last updated: {stats.last_updated ? new Date(stats.last_updated).toLocaleDateString() : "N/A"}

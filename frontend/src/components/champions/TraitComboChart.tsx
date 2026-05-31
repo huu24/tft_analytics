@@ -1,5 +1,6 @@
 import ReactECharts from "echarts-for-react";
 import type { ChampionTraitCombo } from "@/types/champion";
+import { getTraitDisplayName } from "@/utils/displayNames";
 
 interface TraitComboChartProps {
   traits: ChampionTraitCombo[];
@@ -7,7 +8,7 @@ interface TraitComboChartProps {
 
 export default function TraitComboChart({ traits }: TraitComboChartProps) {
   const sorted = [...traits].sort((a, b) => a.avg_placement - b.avg_placement).slice(0, 12);
-  const labels = sorted.map((t) => t.trait_name);
+  const labels = sorted.map((t) => getTraitDisplayName(t.trait_name));
   const values = sorted.map((t) => +t.avg_placement.toFixed(2));
   const games = sorted.map((t) => t.total_games);
 

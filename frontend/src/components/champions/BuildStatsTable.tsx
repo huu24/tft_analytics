@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { ChevronUp, ChevronDown } from "lucide-react";
 import type { ChampionItemCombo, BuildSortField, SortDirection } from "@/types/champion";
+import { getItemDisplayName } from "@/utils/displayNames";
 
 interface BuildStatsTableProps {
   builds: ChampionItemCombo[];
@@ -89,8 +90,8 @@ export default function BuildStatsTable({ builds }: BuildStatsTableProps) {
                   className="border-b border-dark-700 hover:bg-dark-700 transition-colors"
                 >
                   <td className="px-4 py-2 text-white font-medium">
-                    <span title={row.item_name} className="text-truncate-safe block">
-                      {row.item_name}
+                    <span className="text-truncate-safe block">
+                      {getItemDisplayName(row.item_name)}
                     </span>
                   </td>
                   <td className="px-4 py-2 text-right text-gray-300">

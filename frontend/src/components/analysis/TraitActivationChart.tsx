@@ -8,6 +8,7 @@ import {
 } from "echarts/components";
 import { CanvasRenderer } from "echarts/renderers";
 import type { ChampionTraitCombo } from "@/types/analysis";
+import { getTraitDisplayName } from "@/utils/displayNames";
 
 echarts.use([
   BarChart,
@@ -57,6 +58,7 @@ export default function TraitActivationChart({
   }
 
   const traitNames = Array.from(traitMap.keys()).slice(0, 15);
+  const traitLabels = traitNames.map(getTraitDisplayName);
 
   const seriesData = TIERS.map((tier) => ({
     name: tier,
@@ -95,7 +97,7 @@ export default function TraitActivationChart({
     },
     yAxis: {
       type: "category" as const,
-      data: traitNames,
+      data: traitLabels,
       axisLabel: { color: "#9ca3af", fontSize: 11, width: 110, overflow: "truncate" },
       axisLine: { lineStyle: { color: "#1c2640" } },
     },

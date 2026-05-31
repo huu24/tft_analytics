@@ -1,4 +1,5 @@
 import type { CompSummary } from "@/types/composition";
+import { getChampionDisplayName, getCompDisplayName } from "@/utils/displayNames";
 
 interface CompCardProps {
   comp: CompSummary;
@@ -13,10 +14,9 @@ export default function CompCard({ comp, onClick }: CompCardProps) {
     >
       <div className="flex min-w-0 items-start justify-between gap-2 mb-3">
         <h4
-          title={comp.comp_signature}
           className="line-clamp-2 min-w-0 flex-1 text-sm font-semibold text-white group-hover:text-gold transition-colors leading-tight"
         >
-          {comp.comp_signature}
+          {getCompDisplayName(comp)}
         </h4>
         <span className="text-xs text-teal font-bold shrink-0">
           {(comp.win_rate * 100).toFixed(1)}%
@@ -27,10 +27,9 @@ export default function CompCard({ comp, onClick }: CompCardProps) {
         {comp.core_units.slice(0, 4).map((unit) => (
           <span
             key={unit}
-            title={unit}
             className="text-truncate-safe max-w-[7rem] text-[10px] px-1.5 py-0.5 rounded bg-dark-600 text-gray-300"
           >
-            {unit}
+            {getChampionDisplayName(unit)}
           </span>
         ))}
         {comp.core_units.length > 4 && (

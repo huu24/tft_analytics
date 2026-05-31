@@ -1,5 +1,6 @@
 import { Trophy, Target, BarChart3, Shield, Swords } from "lucide-react";
 import type { BuildRecommendation } from "@/types/analysis";
+import { getChampionDisplayName, getItemDisplayName } from "@/utils/displayNames";
 
 interface BuildSuggestionCardProps {
   recommendations: BuildRecommendation[];
@@ -75,11 +76,10 @@ export default function BuildSuggestionCard({
             >
               <div className="flex min-w-0 items-center justify-between gap-2 mb-2">
                 <span
-                  title={rec.champion_id}
                   className={`text-truncate-safe text-sm font-medium ${onChampionClick ? "text-gold hover:underline cursor-pointer" : "text-white"}`}
                   onClick={() => onChampionClick?.(rec.champion_id)}
                 >
-                  {rec.champion_id}
+                  {getChampionDisplayName(rec.champion_id)}
                 </span>
                 <span className="shrink-0 text-xs text-teal">
                   {(rec.win_rate * 100).toFixed(1)}% WR
@@ -90,10 +90,9 @@ export default function BuildSuggestionCard({
                   rec.recommended_items.map((item) => (
                     <span
                       key={item}
-                      title={item}
                       className="text-truncate-safe max-w-full px-2 py-0.5 bg-gold/10 text-gold rounded text-xs"
                     >
-                      {item}
+                      {getItemDisplayName(item)}
                     </span>
                   ))
                 ) : (
@@ -109,22 +108,6 @@ export default function BuildSuggestionCard({
         </div>
       </div>
 
-      <div className="px-6 pb-6">
-        <h4 className="text-sm font-medium text-gray-400 mb-3">
-          Trait Breakdown
-        </h4>
-        <div className="flex flex-wrap gap-2">
-          {extractTraits(recommendations).map((trait) => (
-            <span
-              key={trait}
-              title={trait}
-              className="text-truncate-safe max-w-full px-3 py-1 bg-teal/10 text-teal rounded-full text-xs font-medium"
-            >
-              {trait}
-            </span>
-          ))}
-        </div>
-      </div>
     </div>
   );
 }
@@ -147,18 +130,4 @@ function StatBox({
       <div className="text-xl font-bold text-white">{value}</div>
     </div>
   );
-}
-
-function extractTraits(recommendations: BuildRecommendation[]): string[] {
-  const traitSet = new Set<string>();
-  for (const rec of recommendations) {
-    const parts = rec.champion_id.split("_");
-    if (parts.length > 1) {
-      traitSet.add(parts[0]);
-    }
-  }
-  if (traitSet.size === 0) {
-    return ["Synergy", "Flex", "Carry", "Support", "Tank"];
-  }
-  return Array.from(traitSet);
 }

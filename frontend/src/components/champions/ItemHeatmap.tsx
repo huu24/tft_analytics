@@ -1,5 +1,6 @@
 import ReactECharts from "echarts-for-react";
 import type { ChampionItemCombo } from "@/types/champion";
+import { getItemDisplayName } from "@/utils/displayNames";
 
 interface ItemHeatmapProps {
   items: ChampionItemCombo[];
@@ -10,7 +11,7 @@ const metrics = ["Win Rate", "Top 4 Rate", "Avg Place", "Games"] as const;
 
 export default function ItemHeatmap({ items, onItemClick }: ItemHeatmapProps) {
   const sorted = [...items].sort((a, b) => b.win_rate - a.win_rate).slice(0, 15);
-  const yLabels = sorted.map((i) => i.item_name);
+  const yLabels = sorted.map((i) => getItemDisplayName(i.item_name));
 
   const data: [number, number, number][] = [];
   sorted.forEach((item, yIdx) => {
@@ -88,7 +89,7 @@ export default function ItemHeatmap({ items, onItemClick }: ItemHeatmapProps) {
     ? {
         click: (params: { data: [number, number, number] }) => {
           const yIdx = params.data[1];
-          const itemName = yLabels[yIdx];
+          const itemName = sorted[yIdx]?.item_name;
           if (itemName) onItemClick(itemName);
         },
       }

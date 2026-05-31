@@ -3,6 +3,7 @@ import ReactECharts from "echarts-for-react";
 import { X } from "lucide-react";
 import apiClient from "@/api/client";
 import type { CompSummary, CompDetail, CompTrait } from "@/types/composition";
+import { getChampionDisplayName, getCompDisplayName, getItemDisplayName, getTraitDisplayName } from "@/utils/displayNames";
 
 interface CompDetailModalProps {
   comp: CompSummary | null;
@@ -13,7 +14,7 @@ interface CompDetailModalProps {
 function buildSunburstOption(traits: CompTrait[]) {
   const traitGroups: Record<string, CompTrait[]> = {};
   for (const t of traits) {
-    const key = t.name;
+    const key = getTraitDisplayName(t.name);
     if (!traitGroups[key]) traitGroups[key] = [];
     traitGroups[key].push(t);
   }
@@ -81,7 +82,7 @@ function buildUnitBarOption(units: string[]) {
     },
     yAxis: {
       type: "category" as const,
-      data: sorted.map(([name]) => name),
+      data: sorted.map(([name]) => getChampionDisplayName(name)),
       axisLabel: { color: "#ccc", fontSize: 11, width: 110, overflow: "truncate" },
       axisLine: { show: false },
       axisTick: { show: false },
@@ -129,10 +130,9 @@ export default function CompDetailModal({ comp, onClose, onUnitClick }: CompDeta
       <div className="relative w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-2xl bg-dark-800 border border-dark-600 shadow-2xl">
         <div className="sticky top-0 z-10 flex min-w-0 items-center justify-between gap-3 p-5 bg-dark-800 border-b border-dark-600">
           <h3
-            title={display.comp_signature}
             className="line-clamp-2 min-w-0 text-lg font-bold text-gold"
           >
-            {display.comp_signature}
+            {getCompDisplayName(display)}
           </h3>
           <button
             onClick={onClose}
@@ -186,10 +186,9 @@ export default function CompDetailModal({ comp, onClose, onUnitClick }: CompDeta
                         <button
                           key={unit}
                           onClick={() => onUnitClick(unit)}
-                          title={unit}
                           className="text-truncate-safe max-w-[10rem] text-xs px-2 py-0.5 rounded bg-gold/10 text-gold hover:bg-gold/20 transition-colors"
                         >
-                          {unit}
+                          {getChampionDisplayName(unit)}
                         </button>
                       ))}
                     </div>
@@ -208,10 +207,9 @@ export default function CompDetailModal({ comp, onClose, onUnitClick }: CompDeta
                 {detail.core_items.map((item) => (
                   <span
                     key={item}
-                    title={item}
                     className="text-truncate-safe max-w-full text-xs px-2.5 py-1 rounded-lg bg-dark-600 text-gray-300 border border-dark-600"
                   >
-                    {item}
+                    {getItemDisplayName(item)}
                   </span>
                 ))}
               </div>

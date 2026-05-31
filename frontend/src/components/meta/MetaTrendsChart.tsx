@@ -1,5 +1,6 @@
 import ReactECharts from "echarts-for-react";
 import type { CompSummary } from "@/types/composition";
+import { getCompDisplayName } from "@/utils/displayNames";
 
 interface MetaTrendsChartProps {
   comps: CompSummary[];
@@ -19,7 +20,7 @@ export default function MetaTrendsChart({ comps }: MetaTrendsChartProps) {
   const dates = [...new Set(topComps.map((c) => c.last_updated!.split("T")[0]))];
 
   const winRateSeries = topComps.map((c) => ({
-    name: c.comp_signature,
+    name: getCompDisplayName(c),
     type: "line" as const,
     smooth: true,
     symbol: "circle",
@@ -35,7 +36,7 @@ export default function MetaTrendsChart({ comps }: MetaTrendsChartProps) {
   const pickRateSeries = topComps.map((c) => {
     const totalGames = sorted.reduce((s, s2) => s + s2.total_games, 0);
     return {
-      name: `${c.comp_signature} (pick)`,
+      name: `${getCompDisplayName(c)} (pick)`,
       type: "line" as const,
       smooth: true,
       symbol: "diamond",

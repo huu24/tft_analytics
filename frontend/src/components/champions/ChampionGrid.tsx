@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { Search, Swords } from "lucide-react";
 import type { ChampionSummary, ChampionSortField } from "@/types/champion";
+import { getChampionDisplayName } from "@/utils/displayNames";
 
 interface ChampionGridProps {
   champions: ChampionSummary[];
@@ -89,10 +90,9 @@ export default function ChampionGrid({
               <Swords className="w-5 h-5 text-gold" />
             </div>
             <span
-              title={champ.display_name || champ.champion_id}
               className="text-truncate-safe w-full px-1 text-center text-xs font-medium text-white"
             >
-              {champ.display_name || champ.champion_id}
+              {champ.display_name || getChampionDisplayName(champ.champion_id)}
             </span>
             <div className="flex items-center gap-1 text-[10px]">
               <span className="text-teal">{(champ.win_rate * 100).toFixed(1)}%</span>

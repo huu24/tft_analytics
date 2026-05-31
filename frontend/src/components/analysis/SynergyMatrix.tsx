@@ -8,6 +8,7 @@ import {
 } from "echarts/components";
 import { CanvasRenderer } from "echarts/renderers";
 import type { BuildRecommendation } from "@/types/analysis";
+import { getChampionDisplayName } from "@/utils/displayNames";
 
 echarts.use([
   HeatmapChart,
@@ -36,6 +37,7 @@ export default function SynergyMatrix({
       : recommendations.slice(0, 6).map((r) => r.champion_id);
 
   if (champions.length < 2) return null;
+  const championLabels = champions.map(getChampionDisplayName);
 
   const recMap = new Map(
     recommendations.map((r) => [r.champion_id, r])
@@ -74,13 +76,13 @@ export default function SynergyMatrix({
       textStyle: { color: "#e0e0e0" },
       formatter: (params: { value: [number, number, number] }) => {
         const [x, y, val] = params.value;
-        return `${champions[x]} × ${champions[y]}<br/>Synergy: <b>${val}</b>`;
+        return `${championLabels[x]} × ${championLabels[y]}<br/>Synergy: <b>${val}</b>`;
       },
     },
     grid: { top: 10, right: 80, bottom: 70, left: 120 },
     xAxis: {
       type: "category" as const,
-      data: champions,
+      data: championLabels,
       axisLabel: {
         color: "#9ca3af",
         fontSize: 10,
@@ -95,7 +97,7 @@ export default function SynergyMatrix({
     },
     yAxis: {
       type: "category" as const,
-      data: champions,
+      data: championLabels,
       axisLabel: {
         color: "#9ca3af",
         fontSize: 10,

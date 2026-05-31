@@ -11,6 +11,7 @@ import SimilarItemsBar from "@/components/items/SimilarItemsBar";
 import ChampionBreakdownTable from "@/components/items/ChampionBreakdownTable";
 import Breadcrumb from "@/components/Breadcrumb";
 import BackButton from "@/components/BackButton";
+import { getItemDisplayName } from "@/utils/displayNames";
 
 export default function ItemAnalysisPage() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -74,7 +75,7 @@ export default function ItemAnalysisPage() {
         <Breadcrumb
           items={[
             { label: "Items" },
-            ...(selectedItem ? [{ label: selectedItem }] : []),
+            ...(selectedItem ? [{ label: getItemDisplayName(selectedItem) }] : []),
           ]}
         />
         {selectedItem && <BackButton />}

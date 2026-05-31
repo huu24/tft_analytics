@@ -7,6 +7,7 @@ import {
 } from "echarts/components";
 import { CanvasRenderer } from "echarts/renderers";
 import type { BuildRecommendation } from "@/types/analysis";
+import { getChampionDisplayName } from "@/utils/displayNames";
 
 echarts.use([RadarChart, TooltipComponent, LegendComponent, CanvasRenderer]);
 
@@ -51,7 +52,7 @@ export default function BuildVariationsRadar({
     );
 
     return {
-      name: rec.champion_id,
+      name: getChampionDisplayName(rec.champion_id),
       value: [winRate, top4Rate, avgPlacement, pickRate, metaScore, itemAccuracy],
       lineStyle: { color: COLORS[i % COLORS.length], width: 2 },
       areaStyle: { color: COLORS[i % COLORS.length], opacity: 0.1 },
@@ -69,7 +70,7 @@ export default function BuildVariationsRadar({
     },
     legend: {
       type: "scroll" as const,
-      data: top.map((r) => r.champion_id),
+      data: top.map((r) => getChampionDisplayName(r.champion_id)),
       bottom: 0,
       textStyle: { color: "#9ca3af", fontSize: 11 },
       itemWidth: 12,

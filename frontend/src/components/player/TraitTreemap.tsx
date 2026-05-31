@@ -1,5 +1,6 @@
 import ReactECharts from "echarts-for-react";
 import type { PlayerTraitStats } from "@/types/player";
+import { getTraitDisplayName } from "@/utils/displayNames";
 
 interface TraitTreemapProps {
   traits: PlayerTraitStats[];
@@ -42,7 +43,7 @@ export default function TraitTreemap({ traits }: TraitTreemapProps) {
           },
         ],
         data: traits.map((t) => ({
-          name: t.trait_name,
+          name: getTraitDisplayName(t.trait_name),
           value: t.total_games,
           winRate: t.win_rate,
           itemStyle: {

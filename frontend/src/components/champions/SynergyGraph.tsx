@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import ReactECharts from "echarts-for-react";
 import type { ChampionTraitCombo } from "@/types/champion";
+import { getTraitDisplayName } from "@/utils/displayNames";
 
 interface SynergyGraphProps {
   traits: ChampionTraitCombo[];
@@ -41,14 +42,14 @@ export default function SynergyGraph({ traits, championName }: SynergyGraphProps
     top.forEach((trait, idx) => {
       const size = 15 + (trait.total_games / maxGames) * 30;
       n.push({
-        name: trait.trait_name,
+        name: getTraitDisplayName(trait.trait_name),
         symbolSize: size,
         category: 1,
         value: trait.total_games,
       });
       l.push({
         source: championName,
-        target: trait.trait_name,
+        target: getTraitDisplayName(trait.trait_name),
         value: trait.total_games,
       });
 
@@ -56,8 +57,8 @@ export default function SynergyGraph({ traits, championName }: SynergyGraphProps
         const coOccurrence = Math.min(trait.total_games, top[j].total_games) * 0.3;
         if (coOccurrence > maxGames * 0.1) {
           l.push({
-            source: top[j].trait_name,
-            target: trait.trait_name,
+            source: getTraitDisplayName(top[j].trait_name),
+            target: getTraitDisplayName(trait.trait_name),
             value: Math.round(coOccurrence),
           });
         }
