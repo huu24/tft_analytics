@@ -10,8 +10,8 @@ from pyspark.sql.window import Window
 
 MINIO_ACCESS_KEY = os.environ.get("MINIO_ACCESS_KEY", "minioadmin")
 MINIO_SECRET_KEY = os.environ.get("MINIO_SECRET_KEY", "minioadmin")
-MINIO_ENDPOINT = os.environ.get("MINIO_ENDPOINT", "http://localhost:9000")
-ES_HOST = os.environ.get("ES_HOST", "localhost")
+MINIO_ENDPOINT = os.environ.get("MINIO_ENDPOINT", "http://minio:9000")
+ES_HOST = os.environ.get("ES_HOST", "elasticsearch")
 ES_PORT = os.environ.get("ES_PORT", "9200")
 RAW_PATH = os.environ.get("RAW_PATH", "s3a://lakehouse-bucket/tft-raw/")
 

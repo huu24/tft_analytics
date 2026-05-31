@@ -16,10 +16,10 @@ x-airflow-common: &airflow-common
     AIRFLOW__CORE__FERNET_KEY: ""
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: ${AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION}
     AIRFLOW__CORE__LOAD_EXAMPLES: ${AIRFLOW__CORE__LOAD_EXAMPLES}
-    _PIP_ADDITIONAL_REQUIREMENTS: "kafka-python-ng elasticsearch minio pyspark==3.5.1"
   volumes:
     - ./etl/dags:/opt/airflow/dags
     - ./etl/config:/opt/airflow/config
+    - ./etl/spark_jobs:/opt/airflow/etl/spark_jobs
     - airflow-logs:/opt/airflow/logs
   depends_on:
     postgres:

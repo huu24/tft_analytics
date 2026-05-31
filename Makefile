@@ -36,7 +36,7 @@ setup:
 	@echo "1. Checking .env file..."
 	@test -f .env || (echo "ERROR: .env file not found. Copy from .env.example and configure." && exit 1)
 	@echo "2. Starting infrastructure services..."
-	docker compose up -d --build elasticsearch kibana redis postgres minio
+	docker compose up -d --build elasticsearch redis postgres minio
 	@echo "3. Waiting for Elasticsearch..."
 	@sleep 10
 	@echo "4. Initializing Elasticsearch indices..."
