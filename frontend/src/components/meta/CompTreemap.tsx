@@ -56,6 +56,8 @@ export default function CompTreemap({ comps, onSelect }: CompTreemapProps) {
           formatter: "{b}",
           fontSize: 11,
           color: "#fff",
+          overflow: "truncate",
+          ellipsis: "...",
         },
         upperLabel: { show: false },
         levels: [

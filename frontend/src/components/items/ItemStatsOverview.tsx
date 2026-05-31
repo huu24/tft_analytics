@@ -11,7 +11,9 @@ export default function ItemStatsOverview({ item }: ItemStatsOverviewProps) {
 
   return (
     <div className="bg-dark-800 border border-dark-600 rounded-xl p-6">
-      <h3 className="text-lg font-bold text-gold mb-4">{item.item_name}</h3>
+      <h3 title={item.item_name} className="line-clamp-2 text-lg font-bold text-gold mb-4">
+        {item.item_name}
+      </h3>
       <div className="flex items-center justify-center gap-8">
         <div className="text-center">
           <div className="flex items-center justify-center gap-2 mb-1">

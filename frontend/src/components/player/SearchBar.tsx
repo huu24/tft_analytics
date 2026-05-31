@@ -55,7 +55,7 @@ export default function SearchBar({ onSelect }: SearchBarProps) {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search summoner name..."
-          className="flex-1 bg-transparent text-sm text-white placeholder-gray-500 outline-none"
+          className="min-w-0 flex-1 bg-transparent text-sm text-white placeholder-gray-500 outline-none"
         />
         {query && (
           <button onClick={() => { setQuery(""); setResults([]); setOpen(false); }}>
@@ -74,10 +74,12 @@ export default function SearchBar({ onSelect }: SearchBarProps) {
                   setOpen(false);
                   setQuery("");
                 }}
-                className="w-full text-left px-4 py-2.5 hover:bg-dark-600 transition-colors flex items-center justify-between"
+                className="w-full min-w-0 text-left px-4 py-2.5 hover:bg-dark-600 transition-colors flex items-center justify-between gap-3"
               >
-                <span className="text-sm text-white font-medium">{r.puuid.slice(0, 16)}...</span>
-                <span className="text-xs text-gray-400">{r.total_games} games</span>
+                <span title={r.puuid} className="text-truncate-safe text-sm text-white font-medium">
+                  {r.puuid}
+                </span>
+                <span className="shrink-0 text-xs text-gray-400">{r.total_games} games</span>
               </button>
             </li>
           ))}

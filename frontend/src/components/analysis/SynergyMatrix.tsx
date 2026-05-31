@@ -22,6 +22,10 @@ interface SynergyMatrixProps {
   selectedChampions: string[];
 }
 
+function shortLabel(label: string, max = 18): string {
+  return label.length > max ? `${label.slice(0, max - 1)}...` : label;
+}
+
 export default function SynergyMatrix({
   recommendations,
   selectedChampions,
@@ -73,7 +77,7 @@ export default function SynergyMatrix({
         return `${champions[x]} × ${champions[y]}<br/>Synergy: <b>${val}</b>`;
       },
     },
-    grid: { top: 10, right: 80, bottom: 60, left: 100 },
+    grid: { top: 10, right: 80, bottom: 70, left: 120 },
     xAxis: {
       type: "category" as const,
       data: champions,
@@ -82,6 +86,9 @@ export default function SynergyMatrix({
         fontSize: 10,
         rotate: 35,
         interval: 0,
+        width: 80,
+        overflow: "truncate",
+        formatter: (value: string) => shortLabel(value),
       },
       axisLine: { lineStyle: { color: "#1c2640" } },
       splitArea: { show: false },
@@ -89,7 +96,13 @@ export default function SynergyMatrix({
     yAxis: {
       type: "category" as const,
       data: champions,
-      axisLabel: { color: "#9ca3af", fontSize: 10 },
+      axisLabel: {
+        color: "#9ca3af",
+        fontSize: 10,
+        width: 110,
+        overflow: "truncate",
+        formatter: (value: string) => shortLabel(value),
+      },
       axisLine: { lineStyle: { color: "#1c2640" } },
       splitArea: { show: false },
     },

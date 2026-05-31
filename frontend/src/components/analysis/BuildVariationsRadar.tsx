@@ -25,6 +25,10 @@ const AXES = [
 
 const COLORS = ["#c8aa6e", "#0ac8b9", "#e84393", "#6c5ce7", "#fdcb6e"];
 
+function shortLabel(label: string, max = 22): string {
+  return label.length > max ? `${label.slice(0, max - 1)}...` : label;
+}
+
 export default function BuildVariationsRadar({
   recommendations,
 }: BuildVariationsRadarProps) {
@@ -64,11 +68,13 @@ export default function BuildVariationsRadar({
       textStyle: { color: "#e0e0e0" },
     },
     legend: {
+      type: "scroll" as const,
       data: top.map((r) => r.champion_id),
       bottom: 0,
       textStyle: { color: "#9ca3af", fontSize: 11 },
       itemWidth: 12,
       itemHeight: 8,
+      formatter: (name: string) => shortLabel(name),
     },
     radar: {
       indicator: AXES,

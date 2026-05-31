@@ -57,7 +57,7 @@ export default function BuildStatsTable({ builds }: BuildStatsTableProps) {
         <h3 className="text-sm font-semibold text-gold">Per-Build Stats</h3>
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+        <table className="w-full min-w-[560px] table-fixed text-sm">
           <thead>
             <tr className="border-b border-dark-600">
               {columns.map((col) => (
@@ -88,7 +88,11 @@ export default function BuildStatsTable({ builds }: BuildStatsTableProps) {
                   key={row.item_name}
                   className="border-b border-dark-700 hover:bg-dark-700 transition-colors"
                 >
-                  <td className="px-4 py-2 text-white font-medium">{row.item_name}</td>
+                  <td className="px-4 py-2 text-white font-medium">
+                    <span title={row.item_name} className="text-truncate-safe block">
+                      {row.item_name}
+                    </span>
+                  </td>
                   <td className="px-4 py-2 text-right text-gray-300">
                     {row.total_games.toLocaleString()}
                   </td>

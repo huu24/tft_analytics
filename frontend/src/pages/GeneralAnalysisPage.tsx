@@ -259,8 +259,10 @@ export default function GeneralAnalysisPage() {
           </div>
           <div className="space-y-3">
             {aiRecommendations.map((rec) => (
-              <div key={rec.champion_id} className="flex items-center gap-3">
-                <span className="text-sm text-white w-32 truncate">{rec.display_name}</span>
+              <div key={rec.champion_id} className="flex min-w-0 items-center gap-3">
+                <span title={rec.display_name} className="text-truncate-safe w-32 text-sm text-white">
+                  {rec.display_name}
+                </span>
                 <div className="flex-1 h-2 bg-dark-600 rounded-full overflow-hidden">
                   <div
                     className="h-full bg-gradient-to-r from-teal/70 to-teal rounded-full transition-all"

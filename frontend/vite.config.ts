@@ -10,10 +10,11 @@ export default defineConfig({
     },
   },
   server: {
-    port: 3000,
+    port: 5173,
+    strictPort: true,
     proxy: {
       "/api": {
-        target: "http://localhost:8000",
+        target: process.env.VITE_API_URL || "http://tft-backend:8000",
         changeOrigin: true,
       },
     },

@@ -46,11 +46,11 @@ export default function ChampionItemHeatmap({ champions }: ChampionItemHeatmapPr
         return `<b>${yLabels[yi]}</b><br/>${METRICS[xi]}: ${val}`;
       },
     },
-    grid: { left: 100, right: 20, top: 10, bottom: 40 },
+    grid: { left: 120, right: 20, top: 10, bottom: 40 },
     xAxis: {
       type: "category",
       data: METRICS as unknown as string[],
-      axisLabel: { color: "#9ca3af", fontSize: 10 },
+      axisLabel: { color: "#9ca3af", fontSize: 10, width: 110, overflow: "truncate" },
       axisTick: { show: false },
       axisLine: { lineStyle: { color: "#1c2640" } },
     },

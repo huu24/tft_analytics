@@ -13,6 +13,16 @@ from app.models.players import (
 router = APIRouter()
 
 
+@router.get("/", response_model=List[PlayerStats])
+async def list_players(
+    sort_by: str = Query("win_rate", description="Sort by: win_rate, avg_placement, top4_rate"),
+    limit: int = Query(20, description="Number of results to return"),
+    offset: int = Query(0, description="Offset for pagination"),
+    es=Depends(get_es_client),
+):
+    return await analytics.list_players(es, sort_by, limit, offset)
+
+
 @router.get("/search", response_model=List[PlayerSearchResult])
 async def search_players(
     name: str = Query(..., description="Riot ID or partial name to search"),

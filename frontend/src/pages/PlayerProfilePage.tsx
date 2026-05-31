@@ -85,7 +85,7 @@ export default function PlayerProfilePage() {
       <Breadcrumb
         items={[
           { label: "Player Profile" },
-          ...(puuid ? [{ label: puuid.slice(0, 16) + "..." }] : []),
+          ...(puuid ? [{ label: puuid }] : []),
         ]}
       />
 
@@ -114,14 +114,14 @@ export default function PlayerProfilePage() {
 
       {puuid && stats && !loading && (
         <>
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-dark-700 border border-dark-600 rounded-xl p-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-gold/20 flex items-center justify-center">
+          <div className="flex min-w-0 flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-dark-700 border border-dark-600 rounded-xl p-4">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="w-10 h-10 shrink-0 rounded-full bg-gold/20 flex items-center justify-center">
                 <User className="w-5 h-5 text-gold" />
               </div>
-              <div>
-                <h2 className="text-lg font-bold text-white">
-                  {stats.puuid.slice(0, 16)}...
+              <div className="min-w-0">
+                <h2 title={stats.puuid} className="text-truncate-safe text-lg font-bold text-white">
+                  {stats.puuid}
                 </h2>
                 <p className="text-xs text-gray-400">
                   Last updated: {stats.last_updated ? new Date(stats.last_updated).toLocaleDateString() : "N/A"}

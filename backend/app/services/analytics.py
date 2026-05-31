@@ -50,6 +50,26 @@ async def get_player_stats(es: AsyncElasticsearch, puuid: str) -> Optional[Dict]
     return await es_get_by_id(es, "player_stats", "puuid", puuid)
 
 
+async def list_players(
+    es: AsyncElasticsearch,
+    sort_by: str = "win_rate",
+    limit: int = 20,
+    offset: int = 0,
+) -> List[Dict]:
+    sort_field_map = {
+        "win_rate": "win_rate",
+        "avg_placement": "avg_placement",
+        "top4_rate": "top4_rate",
+        "total_games": "total_games",
+    }
+    sort_field = sort_field_map.get(sort_by, "win_rate")
+    sort_order = "asc" if sort_field == "avg_placement" else "desc"
+    sort = [{sort_field: {"order": sort_order}}]
+    query = {"match_all": {}}
+    resp = await es_search(es, "player_stats", query, size=limit, from_=offset, sort=sort)
+    return [hit["_source"] for hit in resp["hits"]["hits"]]
+
+
 async def get_player_champions(es: AsyncElasticsearch, puuid: str) -> List[Dict]:
     query = {"term": {"puuid.keyword": puuid}}
     resp = await es_search(es, "player_champion_stats", query, size=100)

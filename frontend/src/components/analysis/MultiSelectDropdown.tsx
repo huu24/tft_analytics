@@ -62,18 +62,19 @@ export default function MultiSelectDropdown({
         onClick={() => setOpen(!open)}
         className="w-full flex items-center justify-between gap-2 px-3 py-2.5 bg-dark-700 border border-dark-600 rounded-lg text-sm text-gray-300 hover:border-gold/50 transition-colors min-h-[42px]"
       >
-        <div className="flex flex-wrap gap-1 flex-1 text-left">
+        <div className="flex min-w-0 flex-1 flex-wrap gap-1 text-left">
           {selected.length === 0 && (
-            <span className="text-gray-500">{placeholder}</span>
+            <span className="text-truncate-safe text-gray-500">{placeholder}</span>
           )}
           {selectedLabels.map((label, i) => (
             <span
               key={i}
-              className="inline-flex items-center gap-1 px-2 py-0.5 bg-gold/15 text-gold rounded text-xs"
+              title={label}
+              className="inline-flex min-w-0 max-w-[10rem] items-center gap-1 px-2 py-0.5 bg-gold/15 text-gold rounded text-xs"
             >
-              {label}
+              <span className="text-truncate-safe">{label}</span>
               <X
-                className="w-3 h-3 cursor-pointer hover:text-white"
+                className="w-3 h-3 shrink-0 cursor-pointer hover:text-white"
                 onClick={(e) => {
                   e.stopPropagation();
                   removeTag(selected[i]);
@@ -129,7 +130,9 @@ export default function MultiSelectDropdown({
                   onChange={() => toggle(option.value)}
                   className="w-3.5 h-3.5 rounded border-dark-600 bg-dark-800 text-gold accent-gold"
                 />
-                <span className="text-sm text-gray-300">{option.label}</span>
+                <span title={option.label} className="text-truncate-safe text-sm text-gray-300">
+                  {option.label}
+                </span>
               </label>
             ))}
           </div>

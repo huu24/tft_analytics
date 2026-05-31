@@ -63,6 +63,7 @@ def create_spark_session():
     return (
         SparkSession.builder
         .appName("TFT_ETL")
+        .config("spark.jars.packages", "org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262,org.elasticsearch:elasticsearch-spark-30_2.12:8.13.0")
         .config("spark.hadoop.fs.s3a.access.key", MINIO_ACCESS_KEY)
         .config("spark.hadoop.fs.s3a.secret.key", MINIO_SECRET_KEY)
         .config("spark.hadoop.fs.s3a.endpoint", MINIO_ENDPOINT)
@@ -438,22 +439,53 @@ def write_to_es(df, index_name, id_field=None):
 
 
 def main():
+    print("🚀 Starting TFT ETL job...")
     spark = create_spark_session()
+    print("✅ Spark session created")
     try:
         raw_df = read_raw_matches(spark)
-        participants_df = explode_participants(raw_df)
-
-        player_stats = calc_player_stats(participants_df)
-        champion_stats = calc_champion_stats(participants_df)
-        item_stats = calc_item_stats(participants_df)
-        comp_meta = calc_comp_meta(participants_df)
-        champion_item_combo = calc_champion_item_combo(participants_df)
-        champion_trait_combo = calc_champion_trait_combo(participants_df)
+        print(f"📥 Read {raw_df.count()} raw matches from MinIO")
         
-        player_champion_stats = calc_player_champion_stats(participants_df)
-        player_trait_stats = calc_player_trait_stats(participants_df)
-        player_item_stats = calc_player_item_stats(participants_df)
+        participants_df = explode_participants(raw_df)
+        print(f"👥 Exploded to {participants_df.count()} participant records")
 
+        print("📊 Calculating player stats...")
+        player_stats = calc_player_stats(participants_df)
+        print(f"   ✅ {player_stats.count()} player stats")
+        
+        print("📊 Calculating champion stats...")
+        champion_stats = calc_champion_stats(participants_df)
+        print(f"   ✅ {champion_stats.count()} champion stats")
+        
+        print("📊 Calculating item stats...")
+        item_stats = calc_item_stats(participants_df)
+        print(f"   ✅ {item_stats.count()} item stats")
+        
+        print("📊 Calculating comp meta...")
+        comp_meta = calc_comp_meta(participants_df)
+        print(f"   ✅ {comp_meta.count()} comp meta")
+        
+        print("📊 Calculating champion-item combos...")
+        champion_item_combo = calc_champion_item_combo(participants_df)
+        print(f"   ✅ {champion_item_combo.count()} champion-item combos")
+        
+        print("📊 Calculating champion-trait combos...")
+        champion_trait_combo = calc_champion_trait_combo(participants_df)
+        print(f"   ✅ {champion_trait_combo.count()} champion-trait combos")
+        
+        print("📊 Calculating player-champion stats...")
+        player_champion_stats = calc_player_champion_stats(participants_df)
+        print(f"   ✅ {player_champion_stats.count()} player-champion stats")
+        
+        print("📊 Calculating player-trait stats...")
+        player_trait_stats = calc_player_trait_stats(participants_df)
+        print(f"   ✅ {player_trait_stats.count()} player-trait stats")
+        
+        print("📊 Calculating player-item stats...")
+        player_item_stats = calc_player_item_stats(participants_df)
+        print(f"   ✅ {player_item_stats.count()} player-item stats")
+
+        print("💾 Writing to Elasticsearch...")
         write_to_es(player_stats, "player_stats", "puuid")
         write_to_es(champion_stats, "champion_stats", "character_id")
         write_to_es(item_stats, "item_stats", "item_name")
@@ -464,8 +496,10 @@ def main():
         write_to_es(player_champion_stats, "player_champion_stats")
         write_to_es(player_trait_stats, "player_trait_stats")
         write_to_es(player_item_stats, "player_item_stats")
+        print("✅ All data written to Elasticsearch")
     finally:
         spark.stop()
+        print("🛑 Spark session stopped")
 
 
 if __name__ == "__main__":

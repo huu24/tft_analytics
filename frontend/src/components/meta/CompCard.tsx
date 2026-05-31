@@ -9,13 +9,16 @@ export default function CompCard({ comp, onClick }: CompCardProps) {
   return (
     <button
       onClick={() => onClick(comp)}
-      className="w-full text-left p-4 rounded-xl bg-dark-700 border border-dark-600 hover:border-gold/50 transition-all duration-200 group"
+      className="w-full min-w-0 text-left p-4 rounded-xl bg-dark-700 border border-dark-600 hover:border-gold/50 transition-all duration-200 group"
     >
-      <div className="flex items-start justify-between mb-3">
-        <h4 className="text-sm font-semibold text-white group-hover:text-gold transition-colors leading-tight">
+      <div className="flex min-w-0 items-start justify-between gap-2 mb-3">
+        <h4
+          title={comp.comp_signature}
+          className="line-clamp-2 min-w-0 flex-1 text-sm font-semibold text-white group-hover:text-gold transition-colors leading-tight"
+        >
           {comp.comp_signature}
         </h4>
-        <span className="text-xs text-teal font-bold ml-2 shrink-0">
+        <span className="text-xs text-teal font-bold shrink-0">
           {(comp.win_rate * 100).toFixed(1)}%
         </span>
       </div>
@@ -24,7 +27,8 @@ export default function CompCard({ comp, onClick }: CompCardProps) {
         {comp.core_units.slice(0, 4).map((unit) => (
           <span
             key={unit}
-            className="text-[10px] px-1.5 py-0.5 rounded bg-dark-600 text-gray-300"
+            title={unit}
+            className="text-truncate-safe max-w-[7rem] text-[10px] px-1.5 py-0.5 rounded bg-dark-600 text-gray-300"
           >
             {unit}
           </span>

@@ -59,10 +59,10 @@ export default function ChampionTable({ champions, onChampionClick }: ChampionTa
         <h3 className="text-sm font-semibold text-gold">Champion Stats</h3>
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+        <table className="w-full min-w-[560px] table-fixed text-sm">
           <thead>
             <tr className="text-left text-xs text-gray-400 uppercase border-b border-dark-600">
-              <th className="px-4 py-2.5 font-medium">Champion</th>
+              <th className="w-[38%] px-4 py-2.5 font-medium">Champion</th>
               {columns.map((col) => (
                 <th
                   key={col.key}
@@ -85,7 +85,12 @@ export default function ChampionTable({ champions, onChampionClick }: ChampionTa
                 className={`${rowColor(c.win_rate)} border-b border-dark-600/50 hover:bg-dark-600/50 transition-colors ${onChampionClick ? "cursor-pointer" : ""}`}
               >
                 <td className="px-4 py-2.5 text-white font-medium">
-                  {c.display_name || c.champion_id}
+                  <span
+                    title={c.display_name || c.champion_id}
+                    className="text-truncate-safe block"
+                  >
+                    {c.display_name || c.champion_id}
+                  </span>
                 </td>
                 <td className="px-4 py-2.5 text-gray-300">{c.total_games}</td>
                 <td className="px-4 py-2.5 text-teal">

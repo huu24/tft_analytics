@@ -262,14 +262,14 @@ def process_match_data(api_key, rate_limiter, puuids, minio_client, bucket_name)
 def load_api_key():
     # Thử lấy từ biến môi trường (Docker style) trước, sau đó fallback ra file txt
     api_key = os.getenv("API_KEY")
-    if api_key and api_key != "RGAPI-YOUR-KEY-HERE":
+    if api_key and api_key != "RGAPI-4868ef9b-3b1a-4013-b3c2-42f7f804e260":
         return api_key.strip()
     
     try:
         with open("api_key.txt", "r") as f:
             return f.read().strip()
     except FileNotFoundError:
-        return "RGAPI-YOUR-KEY-HERE"
+        return "RGAPI-4868ef9b-3b1a-4013-b3c2-42f7f804e260"
 
 
 def get_minio_client():

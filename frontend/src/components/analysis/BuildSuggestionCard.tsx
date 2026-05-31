@@ -71,16 +71,17 @@ export default function BuildSuggestionCard({
           {recommendations.map((rec) => (
             <div
               key={rec.champion_id}
-              className="bg-dark-700 border border-dark-600 rounded-lg p-4"
+              className="min-w-0 bg-dark-700 border border-dark-600 rounded-lg p-4"
             >
-              <div className="flex items-center justify-between mb-2">
+              <div className="flex min-w-0 items-center justify-between gap-2 mb-2">
                 <span
-                  className={`text-sm font-medium ${onChampionClick ? "text-gold hover:underline cursor-pointer" : "text-white"}`}
+                  title={rec.champion_id}
+                  className={`text-truncate-safe text-sm font-medium ${onChampionClick ? "text-gold hover:underline cursor-pointer" : "text-white"}`}
                   onClick={() => onChampionClick?.(rec.champion_id)}
                 >
                   {rec.champion_id}
                 </span>
-                <span className="text-xs text-teal">
+                <span className="shrink-0 text-xs text-teal">
                   {(rec.win_rate * 100).toFixed(1)}% WR
                 </span>
               </div>
@@ -89,7 +90,8 @@ export default function BuildSuggestionCard({
                   rec.recommended_items.map((item) => (
                     <span
                       key={item}
-                      className="px-2 py-0.5 bg-gold/10 text-gold rounded text-xs"
+                      title={item}
+                      className="text-truncate-safe max-w-full px-2 py-0.5 bg-gold/10 text-gold rounded text-xs"
                     >
                       {item}
                     </span>
@@ -115,7 +117,8 @@ export default function BuildSuggestionCard({
           {extractTraits(recommendations).map((trait) => (
             <span
               key={trait}
-              className="px-3 py-1 bg-teal/10 text-teal rounded-full text-xs font-medium"
+              title={trait}
+              className="text-truncate-safe max-w-full px-3 py-1 bg-teal/10 text-teal rounded-full text-xs font-medium"
             >
               {trait}
             </span>

@@ -5,6 +5,10 @@ interface MetaTrendsChartProps {
   comps: CompSummary[];
 }
 
+function shortLabel(label: string, max = 24): string {
+  return label.length > max ? `${label.slice(0, max - 1)}...` : label;
+}
+
 export default function MetaTrendsChart({ comps }: MetaTrendsChartProps) {
   const sorted = [...comps]
     .filter((c) => c.last_updated)
@@ -60,6 +64,7 @@ export default function MetaTrendsChart({ comps }: MetaTrendsChartProps) {
       bottom: 0,
       textStyle: { color: "#999", fontSize: 10 },
       pageTextStyle: { color: "#999" },
+      formatter: (name: string) => shortLabel(name),
     },
     grid: { left: 50, right: 20, top: 20, bottom: 60 },
     xAxis: {

@@ -86,7 +86,7 @@ export default function TraitActivationChart({
       itemWidth: 12,
       itemHeight: 8,
     },
-    grid: { top: 10, right: 20, bottom: 40, left: 100 },
+    grid: { top: 10, right: 20, bottom: 40, left: 120 },
     xAxis: {
       type: "value" as const,
       axisLabel: { color: "#9ca3af" },
@@ -96,7 +96,7 @@ export default function TraitActivationChart({
     yAxis: {
       type: "category" as const,
       data: traitNames,
-      axisLabel: { color: "#9ca3af", fontSize: 11 },
+      axisLabel: { color: "#9ca3af", fontSize: 11, width: 110, overflow: "truncate" },
       axisLine: { lineStyle: { color: "#1c2640" } },
     },
     series: seriesData,

@@ -79,16 +79,19 @@ export default function ChampionGrid({
           <button
             key={champ.champion_id}
             onClick={() => onSelect(champ)}
-            className={`flex flex-col items-center gap-2 p-3 rounded-lg border transition-all hover:border-gold hover:bg-dark-700 ${
+            className={`flex min-w-0 flex-col items-center gap-2 p-3 rounded-lg border transition-all hover:border-gold hover:bg-dark-700 ${
               selectedId === champ.champion_id
                 ? "border-gold bg-dark-700 ring-1 ring-gold/30"
                 : "border-dark-600 bg-dark-800"
             }`}
           >
-            <div className="w-12 h-12 rounded-full bg-dark-600 flex items-center justify-center">
+            <div className="w-12 h-12 shrink-0 rounded-full bg-dark-600 flex items-center justify-center">
               <Swords className="w-5 h-5 text-gold" />
             </div>
-            <span className="text-xs font-medium text-white truncate w-full text-center">
+            <span
+              title={champ.display_name || champ.champion_id}
+              className="text-truncate-safe w-full px-1 text-center text-xs font-medium text-white"
+            >
               {champ.display_name || champ.champion_id}
             </span>
             <div className="flex items-center gap-1 text-[10px]">

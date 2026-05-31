@@ -73,7 +73,7 @@ function buildUnitBarOption(units: string[]) {
 
   return {
     tooltip: { trigger: "axis" as const },
-    grid: { left: 100, right: 20, top: 10, bottom: 20 },
+    grid: { left: 120, right: 20, top: 10, bottom: 20 },
     xAxis: {
       type: "value" as const,
       axisLabel: { color: "#666" },
@@ -82,7 +82,7 @@ function buildUnitBarOption(units: string[]) {
     yAxis: {
       type: "category" as const,
       data: sorted.map(([name]) => name),
-      axisLabel: { color: "#ccc", fontSize: 11 },
+      axisLabel: { color: "#ccc", fontSize: 11, width: 110, overflow: "truncate" },
       axisLine: { show: false },
       axisTick: { show: false },
     },
@@ -127,11 +127,16 @@ export default function CompDetailModal({ comp, onClose, onUnitClick }: CompDeta
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
 
       <div className="relative w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-2xl bg-dark-800 border border-dark-600 shadow-2xl">
-        <div className="sticky top-0 z-10 flex items-center justify-between p-5 bg-dark-800 border-b border-dark-600">
-          <h3 className="text-lg font-bold text-gold">{display.comp_signature}</h3>
+        <div className="sticky top-0 z-10 flex min-w-0 items-center justify-between gap-3 p-5 bg-dark-800 border-b border-dark-600">
+          <h3
+            title={display.comp_signature}
+            className="line-clamp-2 min-w-0 text-lg font-bold text-gold"
+          >
+            {display.comp_signature}
+          </h3>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-dark-600 transition-colors"
+            className="shrink-0 p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-dark-600 transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
@@ -181,7 +186,8 @@ export default function CompDetailModal({ comp, onClose, onUnitClick }: CompDeta
                         <button
                           key={unit}
                           onClick={() => onUnitClick(unit)}
-                          className="text-xs px-2 py-0.5 rounded bg-gold/10 text-gold hover:bg-gold/20 transition-colors"
+                          title={unit}
+                          className="text-truncate-safe max-w-[10rem] text-xs px-2 py-0.5 rounded bg-gold/10 text-gold hover:bg-gold/20 transition-colors"
                         >
                           {unit}
                         </button>
@@ -202,7 +208,8 @@ export default function CompDetailModal({ comp, onClose, onUnitClick }: CompDeta
                 {detail.core_items.map((item) => (
                   <span
                     key={item}
-                    className="text-xs px-2.5 py-1 rounded-lg bg-dark-600 text-gray-300 border border-dark-600"
+                    title={item}
+                    className="text-truncate-safe max-w-full text-xs px-2.5 py-1 rounded-lg bg-dark-600 text-gray-300 border border-dark-600"
                   >
                     {item}
                   </span>

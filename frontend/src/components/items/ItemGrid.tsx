@@ -35,15 +35,18 @@ export default function ItemGrid({ items, selectedItem, onSelect }: ItemGridProp
             <button
               key={item.item_name}
               onClick={() => onSelect(item.item_name)}
-              className={`flex flex-col items-center gap-1.5 p-3 rounded-lg border transition-all text-center
+              className={`flex min-w-0 flex-col items-center gap-1.5 p-3 rounded-lg border transition-all text-center
                 ${
                   isSelected
                     ? "border-gold bg-gold/10 shadow-lg shadow-gold/10"
                     : "border-dark-600 bg-dark-800 hover:border-gold/40 hover:bg-dark-700"
                 }`}
             >
-              <Package className={`w-6 h-6 ${isSelected ? "text-gold" : "text-gray-500"}`} />
-              <span className={`text-xs font-medium leading-tight ${isSelected ? "text-gold" : "text-gray-300"}`}>
+              <Package className={`w-6 h-6 shrink-0 ${isSelected ? "text-gold" : "text-gray-500"}`} />
+              <span
+                title={item.item_name}
+                className={`line-clamp-2 min-h-[2rem] w-full text-xs font-medium leading-tight ${isSelected ? "text-gold" : "text-gray-300"}`}
+              >
                 {item.item_name}
               </span>
               <span className="text-[10px] text-gray-500">

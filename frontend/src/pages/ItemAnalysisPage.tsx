@@ -70,7 +70,7 @@ export default function ItemAnalysisPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex min-w-0 items-center justify-between gap-3">
         <Breadcrumb
           items={[
             { label: "Items" },
