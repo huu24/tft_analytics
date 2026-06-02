@@ -23,7 +23,7 @@ if ! docker compose version &> /dev/null; then
 fi
 
 echo "Starting infrastructure (Elasticsearch, Redis, Postgres, MinIO)..."
-docker compose up -d elasticsearch kibana redis postgres minio minio-init
+docker compose up -d elasticsearch redis postgres minio minio-init
 
 echo "Waiting for Elasticsearch to be ready..."
 for i in $(seq 1 30); do
@@ -41,6 +41,9 @@ done
 echo "Initializing Elasticsearch indices..."
 docker compose run --rm -v "$PROJECT_DIR/etl:/app/etl" backend python etl/scripts/init_es.py --host elasticsearch
 
+echo "Initializing Airflow and ETL metadata..."
+docker compose run --rm airflow-init
+
 echo "Starting all services..."
 docker compose up -d --build
 
@@ -53,7 +56,6 @@ echo "=== TFT Analytics is running ==="
 echo "Frontend:    http://localhost:80"
 echo "Backend API: http://localhost:8000"
 echo "Airflow:     http://localhost:8080 (admin/admin)"
-echo "Kibana:      http://localhost:5601"
 echo "MinIO:       http://localhost:9001 (admin/password123)"
 echo ""
 echo "Useful commands:"

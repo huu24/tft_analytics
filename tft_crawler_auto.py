@@ -3,8 +3,10 @@ import json
 import time
 import os
 import io
+from datetime import datetime, timezone
 from minio import Minio
 from dotenv import load_dotenv
+import psycopg2
 
 # Load environment variables
 load_dotenv()
@@ -189,74 +191,150 @@ def upload_to_minio(minio_client, bucket_name, match_id, match_detail):
     """Đẩy trực tiếp file JSON của trận đấu lên MinIO Data Lake"""
     try:
         match_bytes = json.dumps(match_detail).encode('utf-8')
+        game_datetime = match_detail.get("info", {}).get("game_datetime")
+        if game_datetime:
+            match_date = datetime.fromtimestamp(game_datetime / 1000, timezone.utc).date().isoformat()
+        else:
+            match_date = datetime.now(timezone.utc).date().isoformat()
+        region = match_id.split("_", 1)[0]
+        object_name = f"tft-raw/region={region}/date={match_date}/{match_id}.json"
         minio_client.put_object(
             bucket_name=bucket_name,
-            object_name=f"tft-raw/{match_id}.json",
+            object_name=object_name,
             data=io.BytesIO(match_bytes),
             length=len(match_bytes),
             content_type="application/json"
         )
         print(f"   ☁️ [MinIO] Đã upload trận {match_id} lên bucket {bucket_name}")
+        return object_name
     except Exception as e:
         print(f"❌ Lỗi khi upload trận {match_id} lên MinIO: {e}")
+        return None
 
 
-def process_match_data(api_key, rate_limiter, puuids, minio_client, bucket_name):
-    match_data = load_state_from_file("match_data.json")
+def get_postgres_connection():
+    return psycopg2.connect(
+        host=os.getenv("POSTGRES_HOST", "postgres"),
+        port=int(os.getenv("POSTGRES_PORT", "5432")),
+        dbname=os.getenv("POSTGRES_DB", "airflow"),
+        user=os.getenv("POSTGRES_USER", "airflow"),
+        password=os.getenv("POSTGRES_PASSWORD", "airflow"),
+    )
 
-    # Tạo một set chứa tất cả các Match ID đã từng tải thành công để chống trùng toàn cục
-    global_processed_matches = set()
-    for match in match_data:
-        if "metadata" in match and "match_id" in match["metadata"]:
-            global_processed_matches.add(match["metadata"]["match_id"])
 
-    # Kiểm tra các match ID đã có trên MinIO (nếu có thể)
-    try:
-        objects = minio_client.list_objects(bucket_name, prefix="tft-raw/", recursive=True)
-        for obj in objects:
-            m_id = obj.object_name.replace("tft-raw/", "").replace(".json", "")
-            global_processed_matches.add(m_id)
-    except Exception as e:
-        print(f"Lưu ý: Không thể list file trên MinIO để kiểm tra trùng: {e}")
+def ensure_crawler_tables(conn):
+    with conn.cursor() as cur:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS crawler_players (
+                puuid TEXT PRIMARY KEY,
+                region VARCHAR(16),
+                tier VARCHAR(32),
+                last_crawled_at TIMESTAMPTZ,
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS crawler_matches (
+                match_id TEXT PRIMARY KEY,
+                object_name TEXT NOT NULL,
+                crawled_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """)
+    conn.commit()
+
+
+def backfill_processed_matches(conn, minio_client, bucket_name):
+    print("📦 Reconciling crawler match state from MinIO...")
+    rows = []
+    for obj in minio_client.list_objects(bucket_name, prefix="tft-raw/", recursive=True):
+        match_id = obj.object_name.rsplit("/", 1)[-1].removesuffix(".json")
+        rows.append((match_id, obj.object_name))
+        if len(rows) >= 1000:
+            _insert_crawler_matches(conn, rows)
+            rows = []
+    if rows:
+        _insert_crawler_matches(conn, rows)
+
+
+def _insert_crawler_matches(conn, rows):
+    with conn.cursor() as cur:
+        cur.executemany(
+            """
+            INSERT INTO crawler_matches (match_id, object_name, crawled_at)
+            VALUES (%s, %s, NOW())
+            ON CONFLICT (match_id) DO NOTHING
+            """,
+            rows,
+        )
+    conn.commit()
+
+
+def load_processed_matches(conn):
+    with conn.cursor() as cur:
+        cur.execute("SELECT match_id FROM crawler_matches")
+        return {row[0] for row in cur.fetchall()}
+
+
+def record_uploaded_match(conn, match_id, object_name):
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO crawler_matches (match_id, object_name, crawled_at)
+            VALUES (%s, %s, NOW())
+            ON CONFLICT (match_id) DO UPDATE
+            SET object_name = EXCLUDED.object_name,
+                crawled_at = EXCLUDED.crawled_at
+            """,
+            (match_id, object_name),
+        )
+    conn.commit()
+
+
+def record_crawled_player(conn, puuid):
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO crawler_players (puuid, last_crawled_at, updated_at)
+            VALUES (%s, NOW(), NOW())
+            ON CONFLICT (puuid) DO UPDATE
+            SET last_crawled_at = EXCLUDED.last_crawled_at,
+                updated_at = EXCLUDED.updated_at
+            """,
+            (puuid,),
+        )
+    conn.commit()
+
+
+def process_match_data(api_key, rate_limiter, puuids, minio_client, bucket_name, conn):
+    global_processed_matches = load_processed_matches(conn)
 
     for puuid_entry in puuids:
-        if not puuid_entry.get("has_been_seen", False):
-            puuid = puuid_entry["puuid"]
-            player_name = puuid_entry.get("name", puuid[:10])
+        puuid = puuid_entry["puuid"]
+        player_name = puuid_entry.get("name", puuid[:10])
 
-            print(f"🔍 Đang quét lịch sử của người chơi: {player_name}")
-            match_ids = get_match_ids(puuid, api_key, rate_limiter)
+        print(f"🔍 Đang quét lịch sử của người chơi: {player_name}")
+        match_ids = get_match_ids(puuid, api_key, rate_limiter)
 
-            has_new_data = False
+        for match_id in match_ids:
+            if match_id not in global_processed_matches:
+                match_detail = get_match_data(match_id, api_key, rate_limiter)
 
-            for match_id in match_ids:
-                if (
-                    match_id not in puuid_entry["match_ids"]
-                    and match_id not in global_processed_matches
-                ):
-                    match_detail = get_match_data(match_id, api_key, rate_limiter)
-
-                    if match_detail and "metadata" in match_detail:
-                        match_data.append(match_detail)
+                if match_detail and "metadata" in match_detail:
+                    object_name = upload_to_minio(minio_client, bucket_name, match_id, match_detail)
+                    if object_name:
                         global_processed_matches.add(match_id)
-                        has_new_data = True
-                        
-                        # TỰ ĐỘNG: Upload file JSON lên MinIO Data Lake
-                        upload_to_minio(minio_client, bucket_name, match_id, match_detail)
+                        record_uploaded_match(conn, match_id, object_name)
 
-                    puuid_entry["match_ids"].append(match_id)
+            if match_id not in puuid_entry["match_ids"]:
+                puuid_entry["match_ids"].append(match_id)
 
-            # Đánh dấu đã quét xong người chơi này
-            puuid_entry["has_been_seen"] = True
+        puuid_entry["has_been_seen"] = True
+        record_crawled_player(conn, puuid)
 
-            # Lưu checkpoint định kỳ
-            if has_new_data:
-                save_state_to_file(match_data, "match_data.json")
-            save_state_to_file(puuids, "puuids.json")
-            print(f"💾 Đã lưu checkpoint cho người chơi: {player_name}")
+        save_state_to_file(puuids, "puuids.json")
+        print(f"💾 Đã lưu checkpoint cho người chơi: {player_name}")
 
     save_state_to_file(puuids, "puuids.json")
-    save_state_to_file(match_data, "match_data.json")
 
 
 def load_api_key():
@@ -296,6 +374,8 @@ def main():
 
     rate_limiter = RateLimiter()
     minio_client = get_minio_client()
+    conn = get_postgres_connection()
+    ensure_crawler_tables(conn)
     bucket_name = os.getenv("MINIO_BUCKET", "lakehouse-bucket")
 
     # Đảm bảo bucket tồn tại
@@ -306,11 +386,16 @@ def main():
     except Exception as e:
         print(f"Lỗi kết nối hoặc tạo bucket MinIO: {e}")
 
+    backfill_processed_matches(conn, minio_client, bucket_name)
+
     print("🚀 Bắt đầu chu trình tự động quét Challenger...")
     puuids = process_challenger_summoners(api_key, rate_limiter)
     
     print("🚀 Bắt đầu tải và đồng bộ match details lên MinIO...")
-    process_match_data(api_key, rate_limiter, puuids, minio_client, bucket_name)
+    try:
+        process_match_data(api_key, rate_limiter, puuids, minio_client, bucket_name, conn)
+    finally:
+        conn.close()
     print("✅ Chu trình crawl và đồng bộ hoàn thành.")
 
 

@@ -29,6 +29,7 @@ frontend/.vite/
 .env
 .env.local
 .env.*.local
+.env.backup
 
 # OS
 .DS_Store

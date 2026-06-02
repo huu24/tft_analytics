@@ -6,7 +6,7 @@ from airflow.operators.dummy import DummyOperator
 import os
 
 
-def check_kafka_topic():
+def check_raw_data():
     from minio import Minio
     import os
     
@@ -29,12 +29,11 @@ def check_kafka_topic():
         if not client.bucket_exists(bucket):
             raise Exception(f"Bucket '{bucket}' does not exist")
             
-        objects = list(client.list_objects(bucket, prefix="tft-raw/", recursive=True))
-        if len(objects) > 0:
-            print(f"✅ Success: Found {len(objects)} match JSON files in MinIO bucket '{bucket}' under 'tft-raw/'")
-            return True
-        else:
+        first_object = next(client.list_objects(bucket, prefix="tft-raw/", recursive=True), None)
+        if first_object is None:
             raise Exception(f"No match JSON files found in MinIO bucket '{bucket}' under 'tft-raw/'")
+        print(f"Raw match data is available: {first_object.object_name}")
+        return True
     except Exception as e:
         raise Exception(f"MinIO raw match check failed: {str(e)}")
 
@@ -54,18 +53,22 @@ def verify_es_indices():
         "item_stats",
         "comp_meta",
         "champion_item_combo",
-        "champion_trait_combo"
+        "champion_trait_combo",
+        "player_champion_stats",
+        "player_trait_stats",
+        "player_item_stats",
     ]
     
     for index_name in expected_indices:
-        if not es.indices.exists(index=index_name):
-            raise Exception(f"Index {index_name} does not exist")
+        alias_name = f"tft_{index_name}"
+        if not es.indices.exists_alias(name=alias_name):
+            raise Exception(f"Serving alias {alias_name} does not exist")
         
-        count = es.count(index=index_name)['count']
+        count = es.count(index=alias_name)['count']
         if count == 0:
             raise Exception(f"Index {index_name} has no documents")
         
-        print(f"Index {index_name}: {count} documents")
+        print(f"Alias {alias_name}: {count} documents")
     
     print("All ES indices verified successfully")
 
@@ -87,17 +90,18 @@ with DAG(
     schedule_interval='0 * * * *',
     start_date=datetime(2024, 1, 1),
     catchup=False,
+    max_active_runs=1,
     tags=['tft', 'etl'],
 ) as dag:
     
-    check_kafka_topic = PythonOperator(
-        task_id='check_kafka_topic',
-        python_callable=check_kafka_topic,
+    check_raw_data = PythonOperator(
+        task_id='check_raw_data',
+        python_callable=check_raw_data,
     )
     
     run_spark_etl = BashOperator(
         task_id='run_spark_etl',
-        bash_command='spark-submit --driver-memory 512m --executor-memory 512m /opt/airflow/etl/spark_jobs/tft_etl.py',
+        bash_command='spark-submit --driver-memory 3g --executor-memory 3g /opt/airflow/etl/spark_jobs/tft_etl.py',
     )
     
     verify_es_indices = PythonOperator(
@@ -109,4 +113,4 @@ with DAG(
         task_id='send_notification',
     )
     
-    check_kafka_topic >> run_spark_etl >> verify_es_indices >> send_notification
+    check_raw_data >> run_spark_etl >> verify_es_indices >> send_notification

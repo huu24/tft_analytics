@@ -1,16 +1,15 @@
 {
   "mappings": {
     "properties": {
+      "_document_id": {"type": "keyword"},
       "puuid": {"type": "keyword"},
+      "item_name": {"type": "keyword"},
       "total_games": {"type": "integer"},
       "wins": {"type": "integer"},
       "top4_count": {"type": "integer"},
       "avg_placement": {"type": "float"},
       "win_rate": {"type": "float"},
       "top4_rate": {"type": "float"},
-      "meta_score": {"type": "float"},
-      "flex_score": {"type": "float"},
-      "item_accuracy": {"type": "float"},
       "last_updated": {"type": "date"},
       "data_version": {"type": "keyword"},
       "raw_match_count": {"type": "integer"}

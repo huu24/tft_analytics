@@ -16,10 +16,22 @@ x-airflow-common: &airflow-common
     AIRFLOW__CORE__FERNET_KEY: ""
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: ${AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION}
     AIRFLOW__CORE__LOAD_EXAMPLES: ${AIRFLOW__CORE__LOAD_EXAMPLES}
+    ES_HOST: elasticsearch
+    ES_PORT: 9200
+    MINIO_ENDPOINT: http://minio:9000
+    MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+    MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+    MINIO_BUCKET: ${MINIO_BUCKET:-lakehouse-bucket}
+    POSTGRES_HOST: postgres
+    POSTGRES_PORT: 5432
+    POSTGRES_DB: ${POSTGRES_DB:-airflow}
+    POSTGRES_USER: ${POSTGRES_USER:-airflow}
+    POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-airflow}
   volumes:
     - ./etl/dags:/opt/airflow/dags
-    - ./etl/config:/opt/airflow/config
+    - ./etl/config:/opt/airflow/etl/config
     - ./etl/spark_jobs:/opt/airflow/etl/spark_jobs
+    - ./etl/scripts:/opt/airflow/etl/scripts
     - airflow-logs:/opt/airflow/logs
   depends_on:
     postgres:
@@ -137,7 +149,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-airflow}
       POSTGRES_DB: ${POSTGRES_DB:-airflow}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_HOST_PORT:-5433}:5432"
     volumes:
       - pg-data:/var/lib/postgresql/data
     healthcheck:
@@ -193,6 +205,7 @@ services:
       - -c
       - |
         airflow db migrate
+        python /opt/airflow/etl/scripts/init_metadata.py
         airflow users create \
           --username ${AIRFLOW_ADMIN_USERNAME} \
           --password ${AIRFLOW_ADMIN_PASSWORD} \
@@ -290,6 +303,8 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+      postgres:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1/ || exit 1"]
       interval: 15s
@@ -327,7 +342,6 @@ services:
       - tft-network
     volumes:
       - ./puuids.json:/app/puuids.json
-      - ./match_data.json:/app/match_data.json
       - ./tft_crawler_auto.py:/app/tft_crawler_auto.py
     environment:
       API_KEY: ${API_KEY}
@@ -335,10 +349,17 @@ services:
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
       MINIO_BUCKET: ${MINIO_BUCKET:-lakehouse-bucket}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-airflow}
+      POSTGRES_USER: ${POSTGRES_USER:-airflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-airflow}
     depends_on:
       minio:
         condition: service_healthy
       backend:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     command: python -u tft_crawler_auto.py
 

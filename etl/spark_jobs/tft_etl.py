@@ -1,4 +1,14 @@
+import json
 import os
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+
+import psycopg2
+from psycopg2.extras import execute_values
+from elasticsearch import Elasticsearch
+from minio import Minio
+from pyspark import StorageLevel
 from pyspark.sql import SparkSession
 from pyspark.sql.types import (
     StructType, StructField, StringType, IntegerType, DoubleType,
@@ -14,6 +24,25 @@ MINIO_ENDPOINT = os.environ.get("MINIO_ENDPOINT", "http://minio:9000")
 ES_HOST = os.environ.get("ES_HOST", "elasticsearch")
 ES_PORT = os.environ.get("ES_PORT", "9200")
 RAW_PATH = os.environ.get("RAW_PATH", "s3a://lakehouse-bucket/tft-raw/")
+MINIO_BUCKET = os.environ.get("MINIO_BUCKET", "lakehouse-bucket")
+POSTGRES_HOST = os.environ.get("POSTGRES_HOST", "postgres")
+POSTGRES_PORT = int(os.environ.get("POSTGRES_PORT", "5432"))
+POSTGRES_DB = os.environ.get("POSTGRES_DB", "airflow")
+POSTGRES_USER = os.environ.get("POSTGRES_USER", "airflow")
+POSTGRES_PASSWORD = os.environ.get("POSTGRES_PASSWORD", "airflow")
+MAPPINGS_DIR = Path(__file__).resolve().parent.parent / "config" / "es_mappings"
+
+INDEX_NAMES = [
+    "player_stats",
+    "champion_stats",
+    "item_stats",
+    "comp_meta",
+    "champion_item_combo",
+    "champion_trait_combo",
+    "player_champion_stats",
+    "player_trait_stats",
+    "player_item_stats",
+]
 
 TRAIT_SCHEMA = StructType([
     StructField("name", StringType(), True),
@@ -63,6 +92,7 @@ def create_spark_session():
     return (
         SparkSession.builder
         .appName("TFT_ETL")
+        .master(os.environ.get("SPARK_MASTER", "local[4]"))
         .config("spark.jars.packages", "org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262,org.elasticsearch:elasticsearch-spark-30_2.12:8.13.0")
         .config("spark.hadoop.fs.s3a.access.key", MINIO_ACCESS_KEY)
         .config("spark.hadoop.fs.s3a.secret.key", MINIO_SECRET_KEY)
@@ -171,7 +201,7 @@ def calc_player_stats(participants_df):
     base = base.join(item_counts, on="puuid", how="left")
     base = base.withColumn(
         "item_accuracy",
-        F.when(F.col("unique_items").isNotNull(), F.col("unique_items") / 9.0).otherwise(0.0)
+        F.when(F.col("unique_items").isNotNull(), F.least(F.col("unique_items") / 9.0, F.lit(1.0))).otherwise(0.0)
     )
 
     return base.select(
@@ -185,11 +215,11 @@ def calc_champion_stats(participants_df):
         participants_df
         .select("puuid", "match_id", "placement", F.explode("units").alias("unit"))
         .select(
-            "match_id", "placement",
+            "match_id", "puuid", "placement",
             F.col("unit.character_id").alias("character_id")
         )
         .filter(F.col("character_id").isNotNull())
-        .dropDuplicates(["match_id", "character_id"])
+        .dropDuplicates(["match_id", "puuid", "character_id"])
     )
 
     total_matches = participants_df.select("match_id").distinct().count()
@@ -213,7 +243,7 @@ def calc_champion_stats(participants_df):
         F.when(F.lit(total_matches) > 0, F.col("total_games") / F.lit(total_matches)).otherwise(0.0)
     )
     return stats.select(
-        "character_id", "total_games", "wins", "top4_count", "avg_placement",
+        F.col("character_id").alias("champion_id"), "total_games", "wins", "top4_count", "avg_placement",
         "win_rate", "top4_rate", "pick_rate"
     )
 
@@ -221,10 +251,10 @@ def calc_champion_stats(participants_df):
 def calc_item_stats(participants_df):
     items_df = (
         participants_df
-        .select("match_id", "placement", F.explode("units").alias("unit"))
-        .select("match_id", "placement", F.explode(F.col("unit.itemNames")).alias("item_name"))
+        .select("match_id", "puuid", "placement", F.explode("units").alias("unit"))
+        .select("match_id", "puuid", "placement", F.explode(F.col("unit.itemNames")).alias("item_name"))
         .filter(F.col("item_name").isNotNull() & (F.col("item_name") != ""))
-        .dropDuplicates(["match_id", "item_name"])
+        .dropDuplicates(["match_id", "puuid", "item_name"])
     )
 
     stats = items_df.groupBy("item_name").agg(
@@ -233,7 +263,15 @@ def calc_item_stats(participants_df):
         F.sum(F.when(F.col("placement") <= 4, 1).otherwise(0)).alias("top4_count"),
         F.avg("placement").alias("avg_placement"),
     )
-    return stats.select("item_name", "total_games", "wins", "top4_count", "avg_placement")
+    stats = stats.withColumn(
+        "win_rate",
+        F.when(F.col("total_games") > 0, F.col("wins") / F.col("total_games")).otherwise(0.0)
+    )
+    stats = stats.withColumn(
+        "top4_rate",
+        F.when(F.col("total_games") > 0, F.col("top4_count") / F.col("total_games")).otherwise(0.0)
+    )
+    return stats.select("item_name", "total_games", "wins", "top4_count", "avg_placement", "win_rate", "top4_rate")
 
 
 def calc_comp_meta(participants_df):
@@ -248,8 +286,8 @@ def calc_comp_meta(participants_df):
     comp_df = (
         active_traits_df
         .groupBy("match_id", "placement", "puuid")
-        .agg(F.concat_ws("|", F.collect_list("trait_name")).alias("signature"))
-        .filter(F.col("signature") != "")
+        .agg(F.concat_ws("|", F.sort_array(F.collect_set("trait_name"))).alias("comp_signature"))
+        .filter(F.col("comp_signature") != "")
     )
 
     core_units_df = (
@@ -263,13 +301,29 @@ def calc_comp_meta(participants_df):
 
     comp_with_units = comp_df.join(core_units_df, on=["match_id", "puuid"], how="left")
 
-    stats = comp_with_units.groupBy("signature").agg(
+    stats = comp_with_units.groupBy("comp_signature").agg(
         F.count("*").alias("total_games"),
         F.sum(F.when(F.col("placement") == 1, 1).otherwise(0)).alias("wins"),
         F.sum(F.when(F.col("placement") <= 4, 1).otherwise(0)).alias("top4_count"),
         F.avg("placement").alias("avg_placement"),
-        F.flatten(F.collect_list(F.coalesce(F.col("unit_set"), F.array()))).alias("all_units"),
     )
+    unit_frequency = (
+        comp_with_units
+        .select(
+            "comp_signature",
+            F.explode(F.coalesce(F.col("unit_set"), F.array().cast(ArrayType(StringType())))).alias("champion_id"),
+        )
+        .groupBy("comp_signature", "champion_id")
+        .count()
+        .withColumn(
+            "unit_rank",
+            F.row_number().over(Window.partitionBy("comp_signature").orderBy(F.desc("count"), F.asc("champion_id")))
+        )
+        .filter(F.col("unit_rank") <= 8)
+        .groupBy("comp_signature")
+        .agg(F.collect_list("champion_id").alias("core_units"))
+    )
+    stats = stats.join(unit_frequency, on="comp_signature", how="left")
     stats = stats.withColumn(
         "win_rate",
         F.when(F.col("total_games") > 0, F.col("wins") / F.col("total_games")).otherwise(0.0)
@@ -278,10 +332,13 @@ def calc_comp_meta(participants_df):
         "top4_rate",
         F.when(F.col("total_games") > 0, F.col("top4_count") / F.col("total_games")).otherwise(0.0)
     )
-    stats = stats.withColumn("core_units", F.array_distinct(F.col("all_units"))).drop("all_units")
+    stats = stats.withColumn(
+        "core_units",
+        F.coalesce(F.col("core_units"), F.array().cast(ArrayType(StringType()))),
+    )
 
     return stats.select(
-        "signature", "total_games", "wins", "top4_count", "avg_placement",
+        "comp_signature", "total_games", "wins", "top4_count", "avg_placement",
         "win_rate", "top4_rate", "core_units"
     )
 
@@ -289,9 +346,9 @@ def calc_comp_meta(participants_df):
 def calc_champion_item_combo(participants_df):
     combo_df = (
         participants_df
-        .select("match_id", "placement", F.explode("units").alias("unit"))
+        .select("match_id", "puuid", "placement", F.explode("units").alias("unit"))
         .select(
-            "match_id", "placement",
+            "match_id", "puuid", "placement",
             F.col("unit.character_id").alias("character_id"),
             F.explode(F.col("unit.itemNames")).alias("item_name")
         )
@@ -300,7 +357,7 @@ def calc_champion_item_combo(participants_df):
             & F.col("item_name").isNotNull()
             & (F.col("item_name") != "")
         )
-        .dropDuplicates(["match_id", "character_id", "item_name"])
+        .dropDuplicates(["match_id", "puuid", "character_id", "item_name"])
     )
 
     stats = combo_df.groupBy("character_id", "item_name").agg(
@@ -309,7 +366,7 @@ def calc_champion_item_combo(participants_df):
         F.sum(F.when(F.col("placement") <= 4, 1).otherwise(0)).alias("top4_count"),
         F.avg("placement").alias("avg_placement"),
     )
-    return stats.select("character_id", "item_name", "total_games", "wins", "top4_count", "avg_placement")
+    return stats.select(F.col("character_id").alias("champion_id"), "item_name", "total_games", "wins", "top4_count", "avg_placement")
 
 
 def calc_champion_trait_combo(participants_df):
@@ -331,7 +388,7 @@ def calc_champion_trait_combo(participants_df):
 
     combo_df = (
         units_df.join(traits_df, on=["match_id", "puuid"], how="inner")
-        .dropDuplicates(["match_id", "character_id", "trait_name"])
+        .dropDuplicates(["match_id", "puuid", "character_id", "trait_name"])
     )
 
     stats = combo_df.groupBy("character_id", "trait_name").agg(
@@ -340,7 +397,7 @@ def calc_champion_trait_combo(participants_df):
         F.sum(F.when(F.col("placement") <= 4, 1).otherwise(0)).alias("top4_count"),
         F.avg("placement").alias("avg_placement"),
     )
-    return stats.select("character_id", "trait_name", "total_games", "wins", "top4_count", "avg_placement")
+    return stats.select(F.col("character_id").alias("champion_id"), "trait_name", "total_games", "wins", "top4_count", "avg_placement")
 
 
 def calc_player_champion_stats(participants_df):
@@ -369,7 +426,7 @@ def calc_player_champion_stats(participants_df):
         F.when(F.col("total_games") > 0, F.col("top4_count") / F.col("total_games")).otherwise(0.0)
     )
     return stats.select(
-        "puuid", "character_id", "total_games", "wins", "top4_count", "avg_placement",
+        "puuid", F.col("character_id").alias("champion_id"), "total_games", "wins", "top4_count", "avg_placement",
         "win_rate", "top4_rate"
     )
 
@@ -395,8 +452,12 @@ def calc_player_trait_stats(participants_df):
         "win_rate",
         F.when(F.col("total_games") > 0, F.col("wins") / F.col("total_games")).otherwise(0.0)
     )
+    stats = stats.withColumn(
+        "top4_rate",
+        F.when(F.col("total_games") > 0, F.col("top4_count") / F.col("total_games")).otherwise(0.0)
+    )
     return stats.select(
-        "puuid", "trait_name", "total_games", "wins", "top4_count", "avg_placement", "win_rate"
+        "puuid", "trait_name", "total_games", "wins", "top4_count", "avg_placement", "win_rate", "top4_rate"
     )
 
 
@@ -421,84 +482,340 @@ def calc_player_item_stats(participants_df):
         "win_rate",
         F.when(F.col("total_games") > 0, F.col("wins") / F.col("total_games")).otherwise(0.0)
     )
+    stats = stats.withColumn(
+        "top4_rate",
+        F.when(F.col("total_games") > 0, F.col("top4_count") / F.col("total_games")).otherwise(0.0)
+    )
     return stats.select(
-        "puuid", "item_name", "total_games", "wins", "top4_count", "avg_placement", "win_rate"
+        "puuid", "item_name", "total_games", "wins", "top4_count", "avg_placement", "win_rate", "top4_rate"
     )
 
 
-def write_to_es(df, index_name, id_field=None):
+def get_postgres_connection():
+    return psycopg2.connect(
+        host=POSTGRES_HOST,
+        port=POSTGRES_PORT,
+        dbname=POSTGRES_DB,
+        user=POSTGRES_USER,
+        password=POSTGRES_PASSWORD,
+    )
+
+
+def ensure_metadata_tables(conn):
+    with conn.cursor() as cur:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS etl_runs (
+                run_id UUID PRIMARY KEY,
+                started_at TIMESTAMPTZ NOT NULL,
+                finished_at TIMESTAMPTZ,
+                status VARCHAR(32) NOT NULL,
+                raw_object_count INTEGER NOT NULL DEFAULT 0,
+                new_object_count INTEGER NOT NULL DEFAULT 0,
+                data_version VARCHAR(64),
+                error_message TEXT
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS processed_raw_objects (
+                object_name TEXT PRIMARY KEY,
+                etag TEXT,
+                size BIGINT NOT NULL,
+                processed_at TIMESTAMPTZ NOT NULL,
+                data_version VARCHAR(64) NOT NULL
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS data_versions (
+                data_version VARCHAR(64) PRIMARY KEY,
+                published_at TIMESTAMPTZ NOT NULL,
+                raw_object_count INTEGER NOT NULL,
+                is_active BOOLEAN NOT NULL DEFAULT FALSE
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS crawler_players (
+                puuid TEXT PRIMARY KEY,
+                region VARCHAR(16),
+                tier VARCHAR(32),
+                last_crawled_at TIMESTAMPTZ,
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS crawler_matches (
+                match_id TEXT PRIMARY KEY,
+                object_name TEXT NOT NULL,
+                crawled_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """)
+    conn.commit()
+
+
+def get_minio_client():
+    endpoint = MINIO_ENDPOINT.replace("http://", "").replace("https://", "")
+    return Minio(
+        endpoint,
+        access_key=MINIO_ACCESS_KEY,
+        secret_key=MINIO_SECRET_KEY,
+        secure=MINIO_ENDPOINT.startswith("https://"),
+    )
+
+
+def list_raw_objects():
+    client = get_minio_client()
+    return list(client.list_objects(MINIO_BUCKET, prefix="tft-raw/", recursive=True))
+
+
+def get_new_objects(conn, raw_objects):
+    with conn.cursor() as cur:
+        cur.execute("SELECT object_name, etag FROM processed_raw_objects")
+        processed = dict(cur.fetchall())
+    return [
+        obj for obj in raw_objects
+        if processed.get(obj.object_name) != obj.etag
+    ]
+
+
+def start_run(conn, run_id, raw_count, new_count, data_version):
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO etl_runs (
+                run_id, started_at, status, raw_object_count, new_object_count, data_version
+            ) VALUES (%s, NOW(), 'running', %s, %s, %s)
+            """,
+            (str(run_id), raw_count, new_count, data_version),
+        )
+    conn.commit()
+
+
+def finish_run(conn, run_id, status, error_message=None):
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE etl_runs
+            SET status = %s, error_message = %s, finished_at = NOW()
+            WHERE run_id = %s
+            """,
+            (status, error_message, str(run_id)),
+        )
+    conn.commit()
+
+
+def add_snapshot_metadata(df, data_version, raw_match_count):
+    return (
+        df.withColumn("data_version", F.lit(data_version))
+        .withColumn("raw_match_count", F.lit(raw_match_count))
+        .withColumn("last_updated", F.current_timestamp())
+    )
+
+
+def add_document_id(df, *columns):
+    return df.withColumn("_document_id", F.sha2(F.concat_ws("|", *[F.col(c) for c in columns]), 256))
+
+
+def write_to_es(df, index_name, id_field):
     writer = (
         df.write
         .format("org.elasticsearch.spark.sql")
         .option("es.resource", index_name)
     )
-    if id_field:
-        writer = writer.option("es.mapping.id", id_field)
-    
+    writer = writer.option("es.mapping.id", id_field)
     writer.mode("append").save()
+
+
+def load_mapping(index_name):
+    with open(MAPPINGS_DIR / f"{index_name}.json", "r") as f:
+        return json.load(f)
+
+
+def create_version_indices(es, data_version):
+    concrete_indices = {}
+    for logical_name in INDEX_NAMES:
+        concrete_name = f"{logical_name}_{data_version}"
+        es.indices.create(index=concrete_name, body=load_mapping(logical_name))
+        concrete_indices[logical_name] = concrete_name
+    return concrete_indices
+
+
+def publish_aliases(es, concrete_indices):
+    actions = []
+    for logical_name, concrete_name in concrete_indices.items():
+        alias = f"tft_{logical_name}"
+        if es.indices.exists_alias(name=alias):
+            actions.append({"remove": {"index": "*", "alias": alias}})
+        actions.append({"add": {"index": concrete_name, "alias": alias}})
+    es.indices.update_aliases(body={"actions": actions})
+
+
+def delete_indices(es, concrete_indices):
+    for index_name in concrete_indices.values():
+        if es.indices.exists(index=index_name):
+            es.indices.delete(index=index_name)
+
+
+def cleanup_old_snapshots(es, active_indices):
+    retention = max(int(os.environ.get("ES_SNAPSHOT_RETENTION", "2")), 1)
+    active = set(active_indices.values())
+    for logical_name in INDEX_NAMES:
+        try:
+            indices = es.indices.get(index=f"{logical_name}_v*", allow_no_indices=True)
+        except Exception as exc:
+            print(f"⚠️ Could not list old snapshots for {logical_name}: {exc}")
+            continue
+        old_indices = sorted(set(indices) - active, reverse=True)
+        for index_name in old_indices[retention - 1:]:
+            try:
+                es.indices.delete(index=index_name)
+            except Exception as exc:
+                print(f"⚠️ Could not delete old snapshot {index_name}: {exc}")
+
+
+def validate_snapshot(es, concrete_indices, raw_match_count):
+    required = ["player_stats", "champion_stats", "item_stats", "comp_meta"]
+    for logical_name in required:
+        count = es.count(index=concrete_indices[logical_name])["count"]
+        if count == 0:
+            raise RuntimeError(f"Snapshot validation failed: {logical_name} is empty")
+    if raw_match_count <= 0:
+        raise RuntimeError("Snapshot validation failed: MinIO raw object count is zero")
+
+
+def record_published_snapshot(conn, data_version, raw_objects):
+    processed_at = datetime.now(timezone.utc)
+    with conn.cursor() as cur:
+        cur.execute("UPDATE data_versions SET is_active = FALSE WHERE is_active = TRUE")
+        cur.execute(
+            """
+            INSERT INTO data_versions (data_version, published_at, raw_object_count, is_active)
+            VALUES (%s, NOW(), %s, TRUE)
+            """,
+            (data_version, len(raw_objects)),
+        )
+        execute_values(
+            cur,
+            """
+            INSERT INTO processed_raw_objects (object_name, etag, size, processed_at, data_version)
+            VALUES %s
+            ON CONFLICT (object_name) DO UPDATE
+            SET etag = EXCLUDED.etag,
+                size = EXCLUDED.size,
+                processed_at = EXCLUDED.processed_at,
+                data_version = EXCLUDED.data_version
+            """,
+            [(obj.object_name, obj.etag, obj.size, processed_at, data_version) for obj in raw_objects],
+            template="(%s, %s, %s, %s, %s)",
+            page_size=1000,
+        )
+    conn.commit()
 
 
 def main():
     print("🚀 Starting TFT ETL job...")
+    conn = get_postgres_connection()
+    ensure_metadata_tables(conn)
+    raw_objects = list_raw_objects()
+    new_objects = get_new_objects(conn, raw_objects)
+    run_id = uuid.uuid4()
+    data_version = datetime.now(timezone.utc).strftime("v%Y%m%d%H%M%S%f")
+    start_run(conn, run_id, len(raw_objects), len(new_objects), data_version)
+    if not new_objects:
+        print("✅ No new MinIO objects. Snapshot is already current.")
+        finish_run(conn, run_id, "skipped")
+        conn.close()
+        return
+
+    es = Elasticsearch([f"http://{ES_HOST}:{ES_PORT}"])
+    concrete_indices = {}
+    aliases_published = False
     spark = create_spark_session()
     print("✅ Spark session created")
     try:
-        raw_df = read_raw_matches(spark)
-        print(f"📥 Read {raw_df.count()} raw matches from MinIO")
+        raw_df = (
+            read_raw_matches(spark)
+            .withColumn("_match_id", F.col("metadata.match_id"))
+            .filter(F.col("_match_id").isNotNull())
+            .dropDuplicates(["_match_id"])
+            .drop("_match_id")
+            .persist(StorageLevel.DISK_ONLY)
+        )
+        raw_match_count = raw_df.count()
+        print(f"📥 Read {raw_match_count} distinct raw matches from {len(raw_objects)} MinIO objects")
         
-        participants_df = explode_participants(raw_df)
+        participants_df = explode_participants(raw_df).persist(StorageLevel.DISK_ONLY)
         print(f"👥 Exploded to {participants_df.count()} participant records")
+        raw_df.unpersist()
 
         print("📊 Calculating player stats...")
-        player_stats = calc_player_stats(participants_df)
+        player_stats = calc_player_stats(participants_df).persist(StorageLevel.MEMORY_AND_DISK)
         print(f"   ✅ {player_stats.count()} player stats")
         
         print("📊 Calculating champion stats...")
-        champion_stats = calc_champion_stats(participants_df)
+        champion_stats = calc_champion_stats(participants_df).persist(StorageLevel.MEMORY_AND_DISK)
         print(f"   ✅ {champion_stats.count()} champion stats")
         
         print("📊 Calculating item stats...")
-        item_stats = calc_item_stats(participants_df)
+        item_stats = calc_item_stats(participants_df).persist(StorageLevel.MEMORY_AND_DISK)
         print(f"   ✅ {item_stats.count()} item stats")
         
         print("📊 Calculating comp meta...")
-        comp_meta = calc_comp_meta(participants_df)
+        comp_meta = calc_comp_meta(participants_df).persist(StorageLevel.MEMORY_AND_DISK)
         print(f"   ✅ {comp_meta.count()} comp meta")
         
         print("📊 Calculating champion-item combos...")
-        champion_item_combo = calc_champion_item_combo(participants_df)
+        champion_item_combo = calc_champion_item_combo(participants_df).persist(StorageLevel.MEMORY_AND_DISK)
         print(f"   ✅ {champion_item_combo.count()} champion-item combos")
         
         print("📊 Calculating champion-trait combos...")
-        champion_trait_combo = calc_champion_trait_combo(participants_df)
+        champion_trait_combo = calc_champion_trait_combo(participants_df).persist(StorageLevel.MEMORY_AND_DISK)
         print(f"   ✅ {champion_trait_combo.count()} champion-trait combos")
         
         print("📊 Calculating player-champion stats...")
-        player_champion_stats = calc_player_champion_stats(participants_df)
+        player_champion_stats = calc_player_champion_stats(participants_df).persist(StorageLevel.MEMORY_AND_DISK)
         print(f"   ✅ {player_champion_stats.count()} player-champion stats")
         
         print("📊 Calculating player-trait stats...")
-        player_trait_stats = calc_player_trait_stats(participants_df)
+        player_trait_stats = calc_player_trait_stats(participants_df).persist(StorageLevel.MEMORY_AND_DISK)
         print(f"   ✅ {player_trait_stats.count()} player-trait stats")
         
         print("📊 Calculating player-item stats...")
-        player_item_stats = calc_player_item_stats(participants_df)
+        player_item_stats = calc_player_item_stats(participants_df).persist(StorageLevel.MEMORY_AND_DISK)
         print(f"   ✅ {player_item_stats.count()} player-item stats")
 
-        print("💾 Writing to Elasticsearch...")
-        write_to_es(player_stats, "player_stats", "puuid")
-        write_to_es(champion_stats, "champion_stats", "character_id")
-        write_to_es(item_stats, "item_stats", "item_name")
-        write_to_es(comp_meta, "comp_meta", "signature")
-        write_to_es(champion_item_combo, "champion_item_combo")
-        write_to_es(champion_trait_combo, "champion_trait_combo")
-        
-        write_to_es(player_champion_stats, "player_champion_stats")
-        write_to_es(player_trait_stats, "player_trait_stats")
-        write_to_es(player_item_stats, "player_item_stats")
-        print("✅ All data written to Elasticsearch")
+        print(f"💾 Publishing Elasticsearch snapshot {data_version}...")
+        concrete_indices = create_version_indices(es, data_version)
+        snapshot_frames = {
+            "player_stats": (player_stats, "puuid"),
+            "champion_stats": (champion_stats, "champion_id"),
+            "item_stats": (item_stats, "item_name"),
+            "comp_meta": (comp_meta, "comp_signature"),
+            "champion_item_combo": (add_document_id(champion_item_combo, "champion_id", "item_name"), "_document_id"),
+            "champion_trait_combo": (add_document_id(champion_trait_combo, "champion_id", "trait_name"), "_document_id"),
+            "player_champion_stats": (add_document_id(player_champion_stats, "puuid", "champion_id"), "_document_id"),
+            "player_trait_stats": (add_document_id(player_trait_stats, "puuid", "trait_name"), "_document_id"),
+            "player_item_stats": (add_document_id(player_item_stats, "puuid", "item_name"), "_document_id"),
+        }
+        for logical_name, (frame, id_field) in snapshot_frames.items():
+            write_to_es(
+                add_snapshot_metadata(frame, data_version, raw_match_count),
+                concrete_indices[logical_name],
+                id_field,
+            )
+        validate_snapshot(es, concrete_indices, raw_match_count)
+        publish_aliases(es, concrete_indices)
+        aliases_published = True
+        record_published_snapshot(conn, data_version, raw_objects)
+        cleanup_old_snapshots(es, concrete_indices)
+        finish_run(conn, run_id, "published")
+        print("✅ Snapshot validated and aliases published")
+    except Exception as exc:
+        finish_run(conn, run_id, "failed", str(exc))
+        if concrete_indices and not aliases_published:
+            delete_indices(es, concrete_indices)
+        raise
     finally:
         spark.stop()
+        conn.close()
         print("🛑 Spark session stopped")
 
 

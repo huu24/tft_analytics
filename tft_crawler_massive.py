@@ -7,7 +7,13 @@ from minio import Minio
 from dotenv import load_dotenv
 from collections import defaultdict
 import threading
+from datetime import datetime, timezone
 from queue import Queue
+
+try:
+    import psycopg2
+except ImportError:
+    psycopg2 = None
 
 print("🚀 Starting TFT Massive Crawler...")
 load_dotenv()
@@ -105,18 +111,67 @@ def get_match_data(match_id, region_config, api_key, rate_limiter):
 def upload_to_minio(minio_client, bucket, match_id, match_data):
     try:
         match_bytes = json.dumps(match_data).encode('utf-8')
+        game_datetime = match_data.get("info", {}).get("game_datetime")
+        if game_datetime:
+            match_date = datetime.fromtimestamp(game_datetime / 1000, timezone.utc).date().isoformat()
+        else:
+            match_date = datetime.now(timezone.utc).date().isoformat()
+        region = match_id.split("_", 1)[0]
+        object_name = f"tft-raw/region={region}/date={match_date}/{match_id}.json"
         minio_client.put_object(
             bucket_name=bucket,
-            object_name=f"tft-raw/{match_id}.json",
+            object_name=object_name,
             data=io.BytesIO(match_bytes),
             length=len(match_bytes),
             content_type="application/json"
         )
         print(f"  ☁️  Uploaded {match_id}")
-        return True
+        return object_name
     except Exception as e:
         print(f"  ❌ MinIO upload failed for {match_id}: {e}")
         return False
+
+def get_postgres_connection():
+    if psycopg2 is None:
+        print("⚠️  psycopg2 is not installed. Continuing without PostgreSQL crawler metadata.")
+        return None
+    try:
+        conn = psycopg2.connect(
+            host=os.getenv("POSTGRES_HOST", "localhost"),
+            port=int(os.getenv("POSTGRES_PORT", "5432")),
+            dbname=os.getenv("POSTGRES_DB", "airflow"),
+            user=os.getenv("POSTGRES_USER", "airflow"),
+            password=os.getenv("POSTGRES_PASSWORD", "airflow"),
+        )
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS crawler_matches (
+                    match_id TEXT PRIMARY KEY,
+                    object_name TEXT NOT NULL,
+                    crawled_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+            """)
+        conn.commit()
+        return conn
+    except Exception as exc:
+        print(f"⚠️  PostgreSQL metadata unavailable: {exc}")
+        return None
+
+def record_uploaded_match(conn, match_id, object_name):
+    if conn is None:
+        return
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO crawler_matches (match_id, object_name, crawled_at)
+            VALUES (%s, %s, NOW())
+            ON CONFLICT (match_id) DO UPDATE
+            SET object_name = EXCLUDED.object_name,
+                crawled_at = EXCLUDED.crawled_at
+            """,
+            (match_id, object_name),
+        )
+    conn.commit()
 
 def save_progress(progress_file, processed_matches, processed_players):
     with open(progress_file, 'w') as f:
@@ -137,14 +192,21 @@ def load_progress(progress_file):
 def main():
     print("🔧 Entering main function...")
     api_key = os.getenv('API_KEY')
-    print(f"🔑 API Key loaded: {api_key[:20]}...")
     if not api_key:
         print("❌ API_KEY not found in .env")
         return
+    print(f"🔑 API Key loaded: {api_key[:20]}...")
 
     print("🔌 Connecting to MinIO...")
-    minio_client = Minio('localhost:9000', access_key='admin', secret_key='password123', secure=False)
-    bucket = 'lakehouse-bucket'
+    minio_endpoint = os.getenv("MINIO_ENDPOINT", "http://localhost:9000")
+    minio_client = Minio(
+        minio_endpoint.replace("http://", "").replace("https://", ""),
+        access_key=os.getenv("MINIO_ACCESS_KEY", "admin"),
+        secret_key=os.getenv("MINIO_SECRET_KEY", "password123"),
+        secure=minio_endpoint.startswith("https://"),
+    )
+    bucket = os.getenv("MINIO_BUCKET", "lakehouse-bucket")
+    conn = get_postgres_connection()
     
     print("📦 Checking bucket...")
     if not minio_client.bucket_exists(bucket):
@@ -201,10 +263,12 @@ def main():
             if not match_data:
                 continue
             
-            if upload_to_minio(minio_client, bucket, match_id, match_data):
+            object_name = upload_to_minio(minio_client, bucket, match_id, match_data)
+            if object_name:
                 stats['upload_success'] += 1
                 new_matches += 1
                 processed_matches.add(match_id)
+                record_uploaded_match(conn, match_id, object_name)
             else:
                 stats['upload_failed'] += 1
         
@@ -227,6 +291,8 @@ def main():
     print(f"👥 Total players: {stats['players_processed']}")
     print(f"⏱️  Time: {elapsed/3600:.1f} hours")
     print(f"☁️  MinIO: {stats['upload_success']} uploaded, {stats['upload_failed']} failed")
+    if conn is not None:
+        conn.close()
 
 if __name__ == "__main__":
     main()

@@ -6,8 +6,12 @@
       "wins": {"type": "integer"},
       "top4_count": {"type": "integer"},
       "avg_placement": {"type": "float"},
+      "win_rate": {"type": "float"},
+      "top4_rate": {"type": "float"},
       "most_common_champion": {"type": "keyword"},
-      "last_updated": {"type": "date"}
+      "last_updated": {"type": "date"},
+      "data_version": {"type": "keyword"},
+      "raw_match_count": {"type": "integer"}
     }
   }
 }

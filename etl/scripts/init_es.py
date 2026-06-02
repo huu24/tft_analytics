@@ -13,6 +13,9 @@ INDEX_NAMES = [
     "comp_meta",
     "champion_item_combo",
     "champion_trait_combo",
+    "player_champion_stats",
+    "player_trait_stats",
+    "player_item_stats",
 ]
 
 
@@ -34,6 +37,11 @@ def init_indices(es: Elasticsearch, drop: bool = False) -> None:
             print(f"Created index: {index_name}")
         else:
             print(f"Index already exists: {index_name}")
+
+        alias_name = f"tft_{index_name}"
+        if not es.indices.exists_alias(name=alias_name):
+            es.indices.put_alias(index=index_name, name=alias_name)
+            print(f"Created legacy alias: {alias_name} -> {index_name}")
 
 
 def main():
