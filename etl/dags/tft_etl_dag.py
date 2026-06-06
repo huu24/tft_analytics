@@ -73,13 +73,49 @@ def verify_es_indices():
     print("All ES indices verified successfully")
 
 
+def verify_data_quality():
+    import psycopg2
+
+    conn = psycopg2.connect(
+        host=os.environ.get("POSTGRES_HOST", "postgres"),
+        port=int(os.environ.get("POSTGRES_PORT", "5432")),
+        dbname=os.environ.get("POSTGRES_DB", "airflow"),
+        user=os.environ.get("POSTGRES_USER", "airflow"),
+        password=os.environ.get("POSTGRES_PASSWORD", "airflow"),
+    )
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT participant_count, rejected_participant_count
+                FROM data_quality_runs
+                ORDER BY checked_at DESC
+                LIMIT 1
+                """
+            )
+            row = cur.fetchone()
+        if not row:
+            print("No new Silver batch was normalized; using the previous quality report.")
+            return
+        participant_count, rejected_count = row
+        rejected_ratio = rejected_count / participant_count if participant_count else 0
+        max_ratio = float(os.environ.get("DQ_MAX_REJECTED_RATIO", "0.02"))
+        if rejected_ratio > max_ratio:
+            raise Exception(
+                f"Rejected participant ratio {rejected_ratio:.4f} exceeds threshold {max_ratio:.4f}"
+            )
+        print(f"Data quality passed: rejected participant ratio={rejected_ratio:.4f}")
+    finally:
+        conn.close()
+
+
 default_args = {
     'owner': 'airflow',
     'depends_on_past': False,
     'email_on_failure': False,
     'email_on_retry': False,
-    'retries': 3,
-    'retry_delay': timedelta(minutes=5),
+    'retries': int(os.environ.get("ETL_MAX_RETRIES", "3")),
+    'retry_delay': timedelta(minutes=int(os.environ.get("ETL_RETRY_DELAY_MINUTES", "5"))),
     'sla': timedelta(minutes=10),
 }
 
@@ -87,7 +123,7 @@ with DAG(
     dag_id='tft_analytics_etl',
     default_args=default_args,
     description='TFT Analytics ETL Pipeline',
-    schedule_interval='0 * * * *',
+    schedule_interval=os.environ.get("ETL_SCHEDULE_INTERVAL", "0 * * * *"),
     start_date=datetime(2024, 1, 1),
     catchup=False,
     max_active_runs=1,
@@ -108,9 +144,14 @@ with DAG(
         task_id='verify_es_indices',
         python_callable=verify_es_indices,
     )
+
+    verify_data_quality = PythonOperator(
+        task_id='verify_data_quality',
+        python_callable=verify_data_quality,
+    )
     
     send_notification = DummyOperator(
         task_id='send_notification',
     )
     
-    check_raw_data >> run_spark_etl >> verify_es_indices >> send_notification
+    check_raw_data >> run_spark_etl >> verify_data_quality >> verify_es_indices >> send_notification

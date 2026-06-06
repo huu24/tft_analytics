@@ -1,0 +1,24 @@
+groups:
+  - name: tft-pipeline
+    rules:
+      - alert: TFTSnapshotStale
+        expr: tft_snapshot_age_seconds > 7200
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: TFT serving snapshot has not been refreshed for more than two hours.
+      - alert: TFTSilverPublishLag
+        expr: tft_silver_objects_processed - tft_raw_objects_published > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Silver contains data that has not been published to the serving layer.
+      - alert: TFTRejectedParticipants
+        expr: tft_quality_participants_rejected / clamp_min(tft_quality_participants_total, 1) > 0.02
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: More than two percent of normalized participants were rejected.

@@ -58,12 +58,11 @@ export default function SynergyMatrix({
         ).length;
         const avgWin = (a.win_rate + b.win_rate) / 2;
         const score = Math.round(
-          avgWin * 100 + sharedItems * 10 + Math.random() * 15
+          avgWin * 100 + sharedItems * 10
         );
         data.push([i, j, Math.min(score, 100)]);
       } else {
-        const base = Math.round(40 + Math.random() * 40);
-        data.push([i, j, base]);
+        data.push([i, j, 0]);
       }
     }
   }

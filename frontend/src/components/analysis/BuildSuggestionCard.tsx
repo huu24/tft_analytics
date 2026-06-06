@@ -14,7 +14,7 @@ export default function BuildSuggestionCard({
   if (recommendations.length === 0) {
     return (
       <div className="bg-dark-800 border border-dark-600 rounded-xl p-6 text-center text-gray-500">
-        No build recommendations available for the selected filters.
+        No observed item statistics are available for the selected filters.
       </div>
     );
   }
@@ -26,31 +26,25 @@ export default function BuildSuggestionCard({
     recommendations.reduce((sum, r) => sum + r.avg_placement, 0) /
     recommendations.length;
   const totalGames = recommendations.reduce((sum, r) => sum + r.total_games, 0);
-  const top4Rate =
-    recommendations.reduce(
-      (sum, r) => sum + (r.win_rate > 0.15 ? r.win_rate * 2.5 : r.win_rate * 2),
-      0
-    ) / recommendations.length;
-
   return (
     <div className="bg-dark-800 border border-dark-600 rounded-xl overflow-hidden">
       <div className="px-6 py-4 border-b border-dark-600 flex items-center gap-2">
         <Shield className="w-5 h-5 text-gold" />
         <h3 className="text-lg font-semibold text-gold">
-          Optimal Build Suggestion
+          Observed Item Statistics
         </h3>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 p-6">
         <StatBox
           icon={<Trophy className="w-4 h-4 text-teal" />}
-          label="Expected Win Rate"
+          label="Avg Win Rate"
           value={`${(avgWinRate * 100).toFixed(1)}%`}
         />
         <StatBox
           icon={<Target className="w-4 h-4 text-teal" />}
-          label="Top 4 Rate"
-          value={`${(top4Rate * 100).toFixed(1)}%`}
+          label="Champions"
+          value={recommendations.length.toLocaleString()}
         />
         <StatBox
           icon={<BarChart3 className="w-4 h-4 text-teal" />}
@@ -66,7 +60,7 @@ export default function BuildSuggestionCard({
 
       <div className="px-6 pb-6">
         <h4 className="text-sm font-medium text-gray-400 mb-3">
-          Core Units & Items
+          Champions & Common Items
         </h4>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {recommendations.map((rec) => (

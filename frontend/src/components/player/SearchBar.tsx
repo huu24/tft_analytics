@@ -67,18 +67,23 @@ export default function SearchBar({ onSelect }: SearchBarProps) {
 
       {open && results.length > 0 && (
         <ul className="absolute z-50 mt-1 w-full bg-dark-700 border border-dark-600 rounded-lg shadow-xl overflow-hidden">
-          {results.map((r, index) => (
+          {results.map((r) => (
             <li key={r.puuid}>
               <button
                 onClick={() => {
                   onSelect(r.puuid);
                   setOpen(false);
-                  setQuery("");
+                  setQuery(r.player_name ?? "");
                 }}
                 className="w-full min-w-0 text-left px-4 py-2.5 hover:bg-dark-600 transition-colors flex items-center justify-between gap-3"
               >
-                <span className="text-truncate-safe text-sm text-white font-medium">
-                  {playerLabel(index)}
+                <span className="min-w-0">
+                  <span className="text-truncate-safe block text-sm text-white font-medium">
+                    {playerLabel(r.player_name, `${r.puuid.slice(0, 8)}...`)}
+                  </span>
+                  <span className="text-truncate-safe block text-xs text-gray-500">
+                    {r.puuid}
+                  </span>
                 </span>
                 <span className="shrink-0 text-xs text-gray-400">{r.total_games} games</span>
               </button>

@@ -49,17 +49,46 @@ def init_metadata():
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS crawler_players (
                     puuid TEXT PRIMARY KEY,
+                    player_name TEXT,
                     region VARCHAR(16),
                     tier VARCHAR(32),
                     last_crawled_at TIMESTAMPTZ,
                     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 )
             """)
+            cur.execute("ALTER TABLE crawler_players ADD COLUMN IF NOT EXISTS player_name TEXT")
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS crawler_matches (
                     match_id TEXT PRIMARY KEY,
                     object_name TEXT NOT NULL,
                     crawled_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS processed_silver_objects (
+                    object_name TEXT PRIMARY KEY,
+                    etag TEXT,
+                    size BIGINT NOT NULL,
+                    normalized_at TIMESTAMPTZ NOT NULL,
+                    silver_batch_id VARCHAR(64) NOT NULL
+                )
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS data_quality_runs (
+                    run_id UUID PRIMARY KEY REFERENCES etl_runs(run_id),
+                    checked_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    raw_match_count INTEGER NOT NULL,
+                    participant_count INTEGER NOT NULL,
+                    valid_participant_count INTEGER NOT NULL,
+                    rejected_participant_count INTEGER NOT NULL,
+                    duplicate_participant_count INTEGER NOT NULL
+                )
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS pipeline_state (
+                    state_key VARCHAR(64) PRIMARY KEY,
+                    state_value TEXT NOT NULL,
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 )
             """)
         conn.commit()

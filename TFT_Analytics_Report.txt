@@ -1,0 +1,595 @@
+================================================================================
+  BÁO CÁO PHÂN TÍCH DỰ ÁN: TFT ANALYTICS DATA PLATFORM
+  (Teamfight Tactics - Analytics Platform)
+================================================================================
+
+  Ngày báo cáo: 03/06/2026
+  Mục tiêu:     Thu thập, xử lý, phân tích và trực quan hóa dữ liệu game TFT
+                từ Riot Games API
+
+================================================================================
+MỤC LỤC
+================================================================================
+I.   TỔNG QUAN KIẾN TRÚC
+II.  CÁC BƯỚC XỬ LÝ (PIPELINE)
+III. ĐẦU VÀO & ĐẦU RA
+IV.  CÔNG NGHỆ SỬ DỤNG & LÝ DO
+V.   DỮ LIỆU ĐƯỢC LƯU TRỮ & XỬ LÝ NHƯ THẾ NÀO
+VI.  CHI TIẾT CÁC THÀNH PHẦN
+VII. SƠ ĐỒ LUỒNG DỮ LIỆU
+
+================================================================================
+I. TỔNG QUAN KIẾN TRÚC
+================================================================================
+
+Dự án áp dụng kiến trúc MEDALLION (3 lớp) kết hợp Lakehouse Pattern:
+
+  [Riot API] → [CRAWLER] → MinIO (Raw)
+                                → [Spark ETL] → MinIO (Silver - Parquet/Iceberg)
+                                                   → [Spark ETL] → MinIO (Gold - Parquet)
+                                                                    → [Elasticsearch]
+                                                                       → [FastAPI Backend]
+                                                                          → [React Frontend]
+
+Hệ thống bao gồm 6 tầng chính:
+  1. Crawler Layer  - Thu thập dữ liệu trận đấu từ Riot Games API
+  2. Storage Layer  - MinIO (S3), PostgreSQL (metadata), Elasticsearch (serving)
+  3. ETL Layer      - Apache Spark + Airflow (xử lý và điều phối)
+  4. Serving Layer  - FastAPI REST API
+  5. UI Layer       - React + TypeScript + Tailwind + ECharts
+  6. ML Layer       - PyTorch neural network (recommendation engine)
+  7. Monitoring     - Prometheus + Grafana + Alerting
+
+
+================================================================================
+II. CÁC BƯỚC XỬ LÝ (PIPELINE) - CHI TIẾT
+================================================================================
+
+Bước 1: THU THẬP DỮ LIỆU (DATA INGESTION)
+------------------------------------------------
+  - Crawler quét danh sách người chơi Challenger/Grandmaster/Master
+    từ Riot Games API (4 regions: VN2, KR, NA1, EUW1).
+  - Mỗi người chơi, lấy 100-200 trận gần nhất.
+  - Lưu raw JSON vào MinIO (bucket: lakehouse-bucket, prefix: tft-raw/).
+  - Crawler cũ hỗ trợ gửi qua Kafka (topic: tft-raw-matches) để streaming.
+  - Crawler tiên tiến nhất (tft_crawler_massive.py) crawl đa luồng,
+    rate limiting thông minh, và lưu progress vào PostgreSQL.
+  - Crawler tự động (tft_crawler_auto.py) tự restart khi gặp API key hết hạn.
+
+Bước 2: NORMALIZATION & VALIDATION (RAW → SILVER)
+------------------------------------------------
+  - Spark đọc raw JSON từ MinIO (tft-raw/).
+  - Parse schema: metadata, info, participants, units, traits.
+  - Normalize thành dạng bảng (flatten + explode participants).
+  - Validate dữ liệu:
+      + Kiểm tra participant hợp lệ (có đủ thông tin)
+      + Loại bỏ dữ liệu trùng lặp (dedup theo (puuid, match_id))
+      + Loại bỏ dữ liệu corrupt
+  - Ghi ra Silver layer (MinIO tft-silver/) định dạng Parquet (mặc định)
+    hoặc Iceberg (setting SILVER_FORMAT=iceberg).
+  - Có quarantine zone cho dữ liệu bị reject (để kiểm tra sau).
+
+Bước 3: AGGREGATION (SILVER → GOLD)
+------------------------------------------------
+  - Spark aggregate từ Silver layer qua 9 góc nhìn phân tích:
+    1. player_stats:         Thống kê tổng quan từng người chơi (win rate, top4 rate, avg placement)
+    2. champion_stats:       Thống kê từng tướng (pick rate, win rate, avg placement)
+    3. item_stats:           Thống kê từng trang bị (win rate, most common champion)
+    4. comp_meta:            Phân tích đội hình meta (core units, traits, win rate)
+    5. champion_item_combo:  Kết hợp tướng-trang bị
+    6. champion_trait_combo: Kết hợp tướng-tộc/hệ
+    7. player_champion_stats:Thống kê tướng theo từng người chơi
+    8. player_trait_stats:   Thống kê tộc/hệ theo từng người chơi
+    9. player_item_stats:    Thống kê trang bị theo từng người chơi
+  - Ghi Gold snapshot versioned (MinIO tft-gold/vXXXXXXX/).
+  - Mỗi metric được tính toán:
+      + win_rate = wins / total_games
+      + top4_rate = top4_count / total_games
+      + avg_placement = sum(placements) / total_games
+      + pick_rate = games_with / total_games
+      + meta_score = 0.4*win_rate + 0.3*top4_rate + 0.2*(1/avg_placement) + 0.1*pick_rate
+      + flex_score = 1.0 - (max_composition_count / total_games)
+
+Bước 4: LOAD VÀO SERVING LAYER (GOLD → ELASTICSEARCH)
+------------------------------------------------
+  - Load 9 Gold aggregate datasets vào Elasticsearch.
+  - Versioned indices: {index_name}_{data_version}
+  - Atomic alias swap: tft_{logical_name} → trỏ đến index mới nhất
+  - Đảm bảo zero-downtime khi publish dữ liệu mới.
+
+Bước 5: SERVE API (FASTAPI → REACT)
+------------------------------------------------
+  - FastAPI async endpoints query Elasticsearch qua alias.
+  - React frontend gọi API, render charts với ECharts.
+  - 5 pages chính: Player Profile, Top Meta, Champion Analysis,
+    Item Analysis, General Analysis.
+
+Bước 6: MACHINE LEARNING (TÙY CHỌN)
+------------------------------------------------
+  - PyTorch model (TFTRecommender) gồm EmbeddingBag + MLP.
+  - Input: danh sách tướng + trang bị hiện tại.
+  - Output: đề xuất tướng nên mua tiếp theo.
+  - Training từ dữ liệu trong MinIO hoặc local JSON.
+  - Inference được tích hợp qua API endpoint /api/recommend.
+
+
+================================================================================
+III. ĐẦU VÀO & ĐẦU RA
+================================================================================
+
+3.1. ĐẦU VÀO (INPUTS)
+------------------------------------------------
+  a) Riot Games API (đầu vào chính):
+       - TFT League API: lấy danh sách người chơi Challenger/GM/Master
+         Endpoint: /tft/league/v1/{challenger|grandmaster|master}
+       - TFT Match API: lấy match IDs và match detail
+         Endpoint: /tft/match/v1/matches/by-puuid/{puuid}/ids
+         Endpoint: /tft/match/v1/matches/{match_id}
+       - 4 Regions: VN2 (SEA), KR (Asia), NA1 (Americas), EUW1 (Europe)
+
+  b) Configuration:
+       - .env file: API key, credentials, connection strings
+       - tft_static_data.py: dictionary mapping champion/trait/item IDs → display names
+
+3.2. ĐẦU RA (OUTPUTS)
+------------------------------------------------
+  a) Raw Data Layer (MinIO):
+       - tft-raw/{match_id}.json: Raw match data từ Riot API (hàng nghìn file JSON)
+
+  b) Silver Layer (MinIO - Parquet/Iceberg):
+       - tft-silver/participants/: Dữ liệu người chơi đã normalize
+       - tft-silver/quarantine/: Dữ liệu bị reject (để debug)
+
+  c) Gold Layer (MinIO - Parquet):
+       - tft-gold/v{timestamp}/{metric}/: Aggregated snapshots (versioned)
+       - 9 loại metrics khác nhau
+
+  d) Elasticsearch Indices (9 indices):
+       - tft_player_stats, tft_champion_stats, tft_item_stats, tft_comp_meta
+       - tft_champion_item_combo, tft_champion_trait_combo
+       - tft_player_champion_stats, tft_player_trait_stats, tft_player_item_stats
+
+  e) PostgreSQL Metadata Tables:
+       - etl_runs: Lịch sử chạy ETL
+       - processed_raw_objects: Track raw objects đã process
+       - data_versions: Version management
+       - crawler_players: Danh sách player đã crawl
+       - crawler_matches: Danh sách match đã crawl
+       - processed_silver_objects: Track silver objects
+       - data_quality_runs: Báo cáo chất lượng dữ liệu
+
+  f) API Endpoints (FastAPI - JSON responses):
+       - GET /health/health
+       - GET /api/players, /api/players/search, /api/players/{puuid}
+         /api/players/{puuid}/champions|traits|items
+       - GET /api/champions, /api/champions/{id}, /api/champions/{id}/items|traits
+       - GET /api/items, /api/items/{name}, /api/items/{name}/champions
+       - GET /api/compositions, /api/compositions/{signature}
+       - GET /api/analysis/build, /api/analysis/meta-overview
+       - GET /api/catalog
+       - GET /api/operations/status
+       - POST /api/recommend (ML)
+       - GET /metrics (Prometheus)
+
+  g) Frontend Pages (React):
+       - /players: Tra cứu người chơi, thống kê cá nhân
+       - /meta: Bảng xếp hạng đội hình meta
+       - /champions: Phân tích tướng (heatmap, synergy graph)
+       - /items: Phân tích trang bị (sunburst, heatmap)
+       - /analysis: Phân tích tổng quan (trends, radar, matrix)
+
+
+================================================================================
+IV. CÔNG NGHỆ SỬ DỤNG & LÝ DO
+================================================================================
+
+┌─────────────────────┬────────────────────────────────────────────────────────┐
+│ Công nghệ           │ Lý do sử dụng                                         │
+├─────────────────────┼────────────────────────────────────────────────────────┤
+│ APACHE SPARK 3.5.1  │ Xử lý phân tán trên volumes lớn (hàng trăm nghìn       │
+│ (PySpark)           │ trận), transform JSON lồng nhau thành dạng bảng,       │
+│                     │ normalize, aggregate. Chạy local (master=local[4])     │
+│                     │ hoặc cluster (spark://spark-master:7077).              │
+├─────────────────────┼────────────────────────────────────────────────────────┤
+│ APACHE AIRFLOW 2.8.1│ Điều phối pipeline ETL theo lịch (cron: 0 * * * * -   │
+│ (CeleryExecutor)    │ mỗi giờ). Quản lý dependencies, retry, SLA, logging.   │
+│                     │ CeleryExecutor cho phép scale worker ngang.            │
+├─────────────────────┼────────────────────────────────────────────────────────┤
+│ MINIO (S3-compatible)│ Object storage cho data lake. Rẻ hơn S3 thật cho      │
+│                     │ dev, tương thích S3 API. Lưu raw JSON, Parquet,        │
+│                     │ Iceberg tables. Partition key: tft-raw/, tft-silver/,  │
+│                     │ tft-gold/.                                            │
+├─────────────────────┼────────────────────────────────────────────────────────┤
+│ ELASTICSEARCH 8.13  │ Serving layer cho analytics queries. Search mạnh mẽ,   │
+│                     │ aggregation nhanh, full-text search. Alias swap cho    │
+│                     │ zero-downtime publish.                                 │
+├─────────────────────┼────────────────────────────────────────────────────────┤
+│ POSTGRESQL          │ Pipeline metadata: ETL runs, watermark tracking,       │
+│                     │ data quality, crawler progress. Quan hệ (ACID) - phù   │
+│                     │ hợp cho metadata (không phải data lớn).                │
+├─────────────────────┼────────────────────────────────────────────────────────┤
+│ FASTAPI (Python 3.11)│ API async hiệu năng cao. Pydantic models cho request/│
+│                     │ response validation. Async Elasticsearch client.       │
+│                     │ Auto-generated OpenAPI docs.                           │
+├─────────────────────┼────────────────────────────────────────────────────────┤
+│ REDIS               │ Celery broker cho Airflow (message queue).             │
+│                     │ Nhanh, in-memory, phù hợp cho task queue.             │
+├─────────────────────┼────────────────────────────────────────────────────────┤
+│ REACT 18 + TypeScript│ UI hiện đại, type-safe. Component-based.             │
+├─────────────────────┼────────────────────────────────────────────────────────┤
+│ VITE 5 + Tailwind 3 │ Build tool nhanh (HMR). CSS utility-first, responsive. │
+├─────────────────────┼────────────────────────────────────────────────────────┤
+│ ECHARTS 5.4         │ Thư viện chart mạnh mẽ: heatmap, radar, sunburst,      │
+│ (echarts-for-react) │ treemap, graph, line chart. Tối ưu cho dữ liệu đa      │
+│                     │ chiều của TFT.                                         │
+├─────────────────────┼────────────────────────────────────────────────────────┤
+│ PyTorch             │ Neural recommendation model (EmbeddingBag + MLP).       │
+│                     │ EmbeddingBag xử lý bag-of-entities (danh sách tướng    │
+│                     │ và trang bị có độ dài thay đổi).                       │
+├─────────────────────┼────────────────────────────────────────────────────────┤
+│ DOCKER COMPOSE      │ Container hóa toàn bộ hệ thống (8+ services).         │
+│                     │ Dễ dàng deploy, reproduce môi trường.                  │
+├─────────────────────┼────────────────────────────────────────────────────────┤
+│ NGINX               │ Reverse proxy cho frontend build (serve static +       │
+│                     │ proxy /api → backend). Production deployment.          │
+├─────────────────────┼────────────────────────────────────────────────────────┤
+│ PROMETHEUS + GRAFANA│ Monitoring pipeline health: snapshot age, lag,         │
+│                     │ rejection rate. Alerting khi pipeline stale >2h,       │
+│                     │ rejected rate >2%.                                     │
+├─────────────────────┼────────────────────────────────────────────────────────┤
+│ KAFKA (tùy chọn)    │ Streaming ingestion từ crawler (thay thế cho direct    │
+│                     │ MinIO write). Dùng khi cần retry isolation hoặc async. │
+├─────────────────────┼────────────────────────────────────────────────────────┤
+│ TRINO (tùy chọn)    │ Ad-hoc SQL queries trên data lake (Iceberg tables).   │
+│                     │ Kết nối Hive catalog tới MinIO.                        │
+├─────────────────────┼────────────────────────────────────────────────────────┤
+│ ICEEBERG (tùy chọn) │ Table format cho Silver layer (default là Parquet).   │
+│                     │ ACID transactions, schema evolution, time travel.      │
+│                     │ Chưa dùng mặc định - cần backfill khi chuyển đổi.     │
+└─────────────────────┴────────────────────────────────────────────────────────┘
+
+
+================================================================================
+V. DỮ LIỆU ĐƯỢC LƯU TRỮ & XỬ LÝ NHƯ THẾ NÀO
+================================================================================
+
+5.1. RAW DATA (MinIO: tft-raw/)
+------------------------------------------------
+  Định dạng: JSON (nguyên gốc từ Riot API)
+  Lưu trữ:   Mỗi file = 1 match, đặt tên {match_id}.json
+  Nội dung:  metadata (match_id, data_version)
+             info (game_version, game_length, participants[...8])
+             mỗi participant có: puuid, placement, level, gold_left,
+               augments[], traits[{name, num_units, style, tier_current}],
+               units[{character_id, tier, itemNames[]}]
+  Tại sao JSON?: Lưu trữ đúng format gốc, không mất thông tin, dễ debug.
+                 Linh hoạt cho schema thay đổi (Riot API có thể thêm field mới).
+
+5.2. SILVER LAYER (MinIO: tft-silver/)
+------------------------------------------------
+  Định dạng: Parquet (mặc định) hoặc Iceberg
+  Lưu trữ:   Columnar format, compressed, schema'd
+  Xử lý:     Spark parse raw JSON → flatten participants → explode → validate
+  Partition: Theo data_version, region
+  Tại sao Parquet?: 
+    - Columnar storage: chỉ đọc cột cần thiết, compression tốt (snappy/zstd)
+    - Schema evolution: có thể thêm/bớt column
+    - Tương thích Spark, Trino, nhiều engine khác
+    - Nhanh hơn JSON 10-100x cho analytical queries
+  Tại sao Iceberg (optional):
+    - ACID transactions: tránh dirty reads khi nhiều job chạy cùng lúc
+    - Time travel: rollback đến version cũ
+    - Schema evolution: rename/drop column dễ dàng
+    - Partition evolution: thay đổi partition strategy
+
+5.3. GOLD AGGREGATES (MinIO: tft-gold/)
+------------------------------------------------
+  Định dạng: Parquet, versioned snapshots
+  Lưu trữ:   tft-gold/v{data_version}/{metric_name}/
+  Xử lý:     Spark aggregate từ Silver (group by, count, avg, ...)
+  Versioning: Mỗi lần chạy ETL tạo data_version mới (timestamp)
+  Retention: Mặc định giữ 2 version gần nhất (cleanup_gold.py)
+  Tại sao versioned snapshots:
+    - Rollback nếu gold data bị lỗi (kết hợp với ES rollback)
+    - So sánh metrics giữa các version
+    - Reproducibility: biết chính xác analysis từng thời điểm
+
+5.4. ELASTICSEARCH (Serving Layer)
+------------------------------------------------
+  9 indices với mappings tối ưu cho search:
+    - Keyword type cho ID fields (champion_id, puuid, v.v.)
+    - Float/Double cho numeric metrics
+    - Integer cho counts
+    - Nested type cho comp_meta.traits
+  Atomic alias swap: 
+    - Publish mới: create index mới → bulk index data → swap alias
+    - Zero downtime: queries không bị gián đoạn
+    - Rollback nhanh: tft_{name} → trỏ về index cũ
+  Tại sao Elasticsearch?
+    - Search nhanh theo keyword (tìm player theo tên, champion theo ID)
+    - Aggregation mạnh (average, sum, histogram cho metrics)
+    - Full-text search: search player by summoner name (partial)
+    - Caching: indices ít thay đổi, search tần suất cao
+
+5.5. POSTGRESQL (Metadata Layer)
+------------------------------------------------
+  8 tables quản lý pipeline state:
+    - etl_runs: audit trail mỗi lần chạy ETL (status, count, error, timing)
+    - processed_raw_objects: tracking raw objects đã process (idempotency)
+    - data_versions: version management (active version tracking)
+    - data_quality_runs: quality metrics (rejected rate, duplicate rate)
+    - crawler_players + crawler_matches: crawling state (resumable)
+    - processed_silver_objects: silver processing tracking
+  Tại sao PostgreSQL cho metadata?
+    - ACID: đảm bảo consistency cho pipeline state
+    - Queries đơn giản (CRUD), không cần scale ngang
+    - Quan hệ: versions, runs, objects có mối quan hệ
+
+5.6. API & FRONTEND
+------------------------------------------------
+  FastAPI async handlers query ES → JSON response
+  React fetch + cache (useApi custom hook) → render với ECharts
+  Tại sao không query Spark trực tiếp?
+    - ES có search latency ~ms so với Spark query ~seconds
+    - ES phù hợp cho serving layer (read-heavy, low latency)
+    - Spark phù hợp cho batch processing (write-heavy, high throughput)
+
+
+================================================================================
+VI. CHI TIẾT CÁC THÀNH PHẦN & FILE
+================================================================================
+
+6.1. CRAWLER COMPONENTS
+────────────────────────────────────────────────────────────────────
+  File                            Chức năng
+  ─────────────────────────────── ─────────────────────────────────
+  tft_crawler.py                  Crawl cơ bản → Kafka (POC)
+  tft_crawler_massive.py          Crawl đa luồng 4 regions → MinIO
+  tft_crawler_auto.py             Crawl tự động với PostgreSQL state
+  spark_processor.py              Spark Streaming từ Kafka (POC)
+  check_kafka.py                  Debug consumer Kafka
+
+6.2. CORE INFRASTRUCTURE
+────────────────────────────────────────────────────────────────────
+  File                            Chức năng
+  ─────────────────────────────── ─────────────────────────────────
+  docker-compose.yml               Định nghĩa 8+ services
+  docker-compose.override.yml      Dev overrides (hot reload, debug)
+  Dockerfile.airflow               Airflow + Spark + Hadoop + Iceberg
+  Makefile                         Orchestration commands
+  .env                             Environment configuration
+
+6.3. ETL PIPELINE
+────────────────────────────────────────────────────────────────────
+  File                            Chức năng
+  ─────────────────────────────── ─────────────────────────────────
+  etl/dags/tft_etl_dag.py          Airflow DAG definition
+  etl/spark_jobs/tft_etl.py        Spark ETL (Raw→Silver→Gold→ES)
+  etl/config/tft_static_data.py    Champion/Trait/Item name mappings
+  etl/config/formulas.py           Công thức tính metrics
+  etl/scripts/init_es.py           Tạo ES indices + aliases
+  etl/scripts/init_metadata.py     Tạo PostgreSQL metadata tables
+  etl/config/es_mappings/*.json    9 ES index mappings
+
+6.4. BACKEND API
+────────────────────────────────────────────────────────────────────
+  File                            Chức năng
+  ─────────────────────────────── ─────────────────────────────────
+  backend/app/main.py              FastAPI app + CORS + routers
+  backend/app/config.py            Pydantic settings
+  backend/app/services/es_client.py Elasticsearch async client singleton
+  backend/app/services/analytics.py Core analytics queries (20+ functions)
+  backend/app/services/recommender.py ML model integration
+  backend/app/routes/*.py          8 routers (REST endpoints)
+  backend/app/models/*.py          Pydantic models
+
+6.5. FRONTEND
+────────────────────────────────────────────────────────────────────
+  File                            Chức năng
+  ─────────────────────────────── ─────────────────────────────────
+  frontend/src/App.tsx             Router 5 pages
+  frontend/src/pages/*.tsx         5 page components
+  frontend/src/components/         ~30 components (charts, tables)
+  frontend/src/hooks/useApi.ts     Custom API fetching hook
+  frontend/src/api/client.ts       Axios instance
+  frontend/src/types/*.ts          TypeScript interfaces
+  frontend/src/utils/*.ts          Utility functions
+
+6.6. MACHINE LEARNING
+────────────────────────────────────────────────────────────────────
+  File                            Chức năng
+  ─────────────────────────────── ─────────────────────────────────
+  ml/model.py                      PyTorch model (EmbeddingBag + MLP)
+  ml/train.py                      Training pipeline
+  ml/predict.py                    Inference engine
+  ml/Dockerfile                    CPU PyTorch container
+  ml/checkpoints/                  Model checkpoints
+
+6.7. OPERATIONS & MONITORING
+────────────────────────────────────────────────────────────────────
+  File                            Chức năng
+  ─────────────────────────────── ─────────────────────────────────
+  monitoring/prometheus.yml        Prometheus config
+  monitoring/grafana/dashboards/   Grafana dashboard JSON
+  monitoring/alerts.yml            Alert rules
+  scripts/setup.sh                 First-time setup script
+  scripts/backup_metadata.sh       PostgreSQL metadata backup
+  scripts/rollback_es.py           ES atomic rollback
+  scripts/cleanup_gold.py          Gold snapshot retention
+
+
+================================================================================
+VII. SƠ ĐỒ LUỒNG DỮ LIỆU (DATA FLOW DIAGRAM)
+================================================================================
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           RIOT GAMES API                                     │
+│          (TFT League API + TFT Match API - 4 Regions)                       │
+└──────────────────────┬──────────────────────────────────────────────────────┘
+                       │
+                       ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  CRAWLER LAYER                       ┌──────────────┐                       │
+│  ┌──────────────────────────────┐   │ Optionally   │                       │
+│  │ tft_crawler_massive.py       │──▶│ Kafka (tft-  │──▶(Spark Streaming)   │
+│  │ (Multi-threaded, 4 regions)  │   │ raw-matches) │                       │
+│  └──────────┬───────────────────┘   └──────────────┘                       │
+│             │                                                               │
+│  PostgreSQL │ (crawler_players, crawler_matches)                           │
+│  (resumable │  state)                                                       │
+└─────────────┼───────────────────────────────────────────────────────────────┘
+              │
+              ▼  Upload raw JSON
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  MINIO (S3-compatible Object Storage)                                        │
+│                                                                              │
+│  ┌──────────────┐  ┌──────────────────┐  ┌──────────────────────────┐      │
+│  │ tft-raw/     │  │ tft-silver/      │  │ tft-gold/               │      │
+│  │ (Raw JSON    │  │ (Parquet/Iceberg)│  │ (Parquet - Versioned    │      │
+│  │  match data)  │  │ participants/   │  │  Snapshots)             │      │
+│  │              │  │ quarantine/      │  │ v20260601/              │      │
+│  │ match1.json  │  │                  │  │ v20260602/              │      │
+│  │ match2.json  │  │                  │  │ etc.                    │      │
+│  └──────────────┘  └──────────────────┘  └──────────────────────────┘      │
+└─────────────────────────────────────────────────────────────────────────────┘
+         │                      ▲                              ▲
+         │ Read Raw             │ Read Silver                  │ Read Silver
+         ▼                      │                              │
+┌────────────────────────────────┴──────────────────────────────┘              │
+│  ETL LAYER (Orchestrated by Apache Airflow)                                  │
+│                                                                              │
+│  ┌──────────────────────────────────────────────────────────────────────┐   │
+│  │  Airflow DAG: tft_analytics_etl (Schedule: 0 * * * * - mỗi giờ)     │   │
+│  │                                                                      │   │
+│  │  check_raw_data → check_data_quality → spark_normalize_to_silver     │   │
+│  │    → spark_gold_aggregate → load_to_elasticsearch → verify_es        │   │
+│  │                                                                      │   │
+│  │  Spark Jobs (PySpark 3.5.1):                                        │   │
+│  │  ┌────────────────────────────────────────────────────────────────┐  │   │
+│  │  │ Step 1: Normalize Raw → Silver                                 │  │   │
+│  │  │  - Read raw JSON từ MinIO                                      │  │   │
+│  │  │  - Parse schema, flatten participants                          │  │   │
+│  │  │  - Validate + dedup                                            │  │   │
+│  │  │  - Write Silver layer (Parquet/Iceberg)                        │  │   │
+│  │  │                                                                │  │   │
+│  │  │ Step 2: Aggregate Silver → Gold                                │  │   │
+│  │  │  - 9 aggregation queries                                       │  │   │
+│  │  │  - Tính win_rate, top4_rate, avg_placement, pick_rate          │  │   │
+│  │  │  - Write Gold snapshots (Parquet)                              │  │   │
+│  │  │                                                                │  │   │
+│  │  │ Step 3: Load Gold → Elasticsearch                              │  │   │
+│  │  │  - Bulk index vào versioned indices                            │  │   │
+│  │  │  - Atomic alias swap (zero-downtime)                           │  │   │
+│  │  └────────────────────────────────────────────────────────────────┘  │   │
+│  └──────────────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                                                              
+                              │                                                
+                              ▼  Gold → ES bulk load                          
+                                                                              
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  ELASTICSEARCH (Serving Layer)                                              │
+│                                                                              │
+│  9 Indices with atomic alias:                                               │
+│  ┌──────────────────────────────────────────────────────────────────────┐   │
+│  │  Alias: tft_player_stats     → player_stats_v20260602                │   │
+│  │  Alias: tft_champion_stats   → champion_stats_v20260602              │   │
+│  │  Alias: tft_item_stats       → item_stats_v20260602                  │   │
+│  │  Alias: tft_comp_meta        → comp_meta_v20260602                   │   │
+│  │  Alias: tft_champion_item_combo    → ...                             │   │
+│  │  Alias: tft_champion_trait_combo    → ...                            │   │
+│  │  Alias: tft_player_champion_stats   → ...                            │   │
+│  │  Alias: tft_player_trait_stats      → ...                            │   │
+│  │  Alias: tft_player_item_stats       → ...                            │   │
+│  └──────────────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼ Query via alias
+                                                                              
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  BACKEND (FastAPI - Python 3.11)                                            │
+│                                                                              │
+│  ┌──────────────────────────────────────────────────────────────────────┐   │
+│  │  /api/players/*        → player_stats, player_*_stats               │   │
+│  │  /api/champions/*      → champion_stats, champion_*_combo           │   │
+│  │  /api/items/*          → item_stats, item_champion_combo            │   │
+│  │  /api/compositions/*   → comp_meta                                  │   │
+│  │  /api/analysis/*       → cross-index analysis                       │   │
+│  │  /api/recommend        → ML model inference (PyTorch)               │   │
+│  │  /api/operations/status→ PostgreSQL metadata                        │   │
+│  │  /api/catalog          → Danh sách champion/item ID → tên           │   │
+│  │  /health/health        → Health check                               │   │
+│  │  /metrics              → Prometheus metrics                         │   │
+│  └──────────────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼ JSON response
+                                                                              
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  FRONTEND (React 18 + TypeScript + Vite + Tailwind + ECharts)               │
+│                                                                              │
+│  ┌──────────────────────────────────────────────────────────────────────┐   │
+│  │  /players  → Player Profile                                          │   │
+│  │    - SearchBar, StatsOverview, ChampionTable, TraitTreemap,          │   │
+│  │      ItemRadar, GameHistoryChart                                     │   │
+│  │                                                                      │   │
+│  │  /meta     → Top Meta Compositions                                   │   │
+│  │    - CompTierList, CompCard, CompDetailModal, CompTreemap,           │   │
+│  │      MetaTrendsChart, CompFilterBar                                  │   │
+│  │                                                                      │   │
+│  │  /champions → Champion Analysis                                      │   │
+│  │    - ChampionGrid, ChampionStatsOverview, SynergyGraph,              │   │
+│  │      ItemHeatmap, TraitComboChart, BuildStatsTable                   │   │
+│  │                                                                      │   │
+│  │  /items    → Item Analysis                                           │   │
+│  │    - ItemGrid, ItemStatsOverview, BestChampionsSunburst,             │   │
+│  │      ChampionItemHeatmap, ChampionBreakdownTable,                    │   │
+│  │      SimilarItemsBar                                                │   │
+│  │                                                                      │   │
+│  │  /analysis → General Analysis                                        │   │
+│  │    - BuildSuggestionCard, BuildVariationsRadar, SynergyMatrix,       │   │
+│  │      TraitActivationChart, MultiSelectDropdown                       │   │
+│  └──────────────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+
+================================================================================
+                 ĐẶC ĐIỂM KIẾN TRÚC NỔI BẬT
+================================================================================
+
+1. MEDALLION ARCHITECTURE (Bronze→Silver→Gold)
+   - Tách biệt raw data, processed data, aggregated data
+   - Mỗi layer có thể rebuild độc lập
+   - Data lineage rõ ràng
+
+2. ZERO-DOWNTIME PUBLISH
+   - Elasticsearch atomic alias swap
+   - Versioned snapshots cho rollback nhanh
+
+3. BATCH + STREAMING (Lambda Architecture - nhẹ)
+   - Batch chính: Airflow + Spark (mỗi giờ)
+   - Stream tùy chọn: Kafka → Spark Streaming (Kafka path)
+
+4. LAKEHOUSE PATTERN
+   - Object storage (MinIO) làm single source of truth
+   - Spark engine cho processing
+   - Elasticsearch cho serving (không phải query trực tiếp trên lake)
+
+5. IDEMPOTENT PIPELINE
+   - Processed objects tracking (PostgreSQL)
+   - Tránh duplicate processing
+   - Có thể chạy lại ETL an toàn
+
+6. RESILIENCE
+   - Crawler auto-restart (rate limit, API key expire)
+   - ETL retry với exponential backoff
+   - Quarantine zone cho bad data
+   - Monitor + Alert
+
+7. HYBRID CLOUD READY
+   - MinIO → AWS S3 (swap endpoint là chạy được)
+   - Container hóa toàn bộ (Docker Compose)
+
+================================================================================
+                          KẾT THÚC BÁO CÁO
+================================================================================

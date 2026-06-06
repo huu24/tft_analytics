@@ -10,12 +10,21 @@ import MetaTrendsChart from "@/components/meta/MetaTrendsChart";
 import Breadcrumb from "@/components/Breadcrumb";
 import { Loader2, AlertTriangle } from "lucide-react";
 
+const MIN_GAMES_DEFAULT = 50;
+const MIN_GAMES_MIN = 10;
+const MIN_GAMES_MAX = 10000;
+
+const clampMinGames = (value: number) => {
+  if (!Number.isFinite(value)) return MIN_GAMES_DEFAULT;
+  return Math.min(MIN_GAMES_MAX, Math.max(MIN_GAMES_MIN, Math.round(value)));
+};
+
 export default function TopMetaPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const [minGames, setMinGames] = useState(() => {
     const v = searchParams.get("min_games");
-    return v ? Number(v) : 50;
+    return v ? clampMinGames(Number(v)) : MIN_GAMES_DEFAULT;
   });
   const [sortBy, setSortBy] = useState<SortField>(() => {
     return (searchParams.get("sort_by") as SortField) || "win_rate";
@@ -24,7 +33,7 @@ export default function TopMetaPage() {
 
   useEffect(() => {
     const params: Record<string, string> = {};
-    if (minGames !== 50) params.min_games = String(minGames);
+    if (minGames !== MIN_GAMES_DEFAULT) params.min_games = String(minGames);
     if (sortBy !== "win_rate") params.sort_by = sortBy;
     setSearchParams(params, { replace: true });
   }, [minGames, sortBy]);
@@ -46,7 +55,7 @@ export default function TopMetaPage() {
 
       <CompFilterBar
         minGames={minGames}
-        onMinGamesChange={setMinGames}
+        onMinGamesChange={(value) => setMinGames(clampMinGames(value))}
         sortBy={sortBy}
         onSortByChange={setSortBy}
       />

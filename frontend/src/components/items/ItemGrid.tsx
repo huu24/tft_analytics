@@ -38,10 +38,12 @@ function getMetricLabel(item: ItemSummary, sortBy: ItemSortField): string {
 export default function ItemGrid({ items, selectedItem, onSelect }: ItemGridProps) {
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState<ItemSortField>("win_rate");
+  const [minGames, setMinGames] = useState(50);
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
     return items
+      .filter((i) => i.total_games >= minGames)
       .filter((i) =>
         getItemDisplayName(i.item_name).toLowerCase().includes(q)
       )
@@ -57,7 +59,7 @@ export default function ItemGrid({ items, selectedItem, onSelect }: ItemGridProp
         }
         return b.total_games - a.total_games;
       });
-  }, [items, search, sortBy]);
+  }, [items, minGames, search, sortBy]);
 
   return (
     <div className="space-y-3">
@@ -83,6 +85,18 @@ export default function ItemGrid({ items, selectedItem, onSelect }: ItemGridProp
             </option>
           ))}
         </select>
+        <label className="flex items-center justify-between gap-3 text-xs text-gray-400">
+          Minimum sample size
+          <select
+            value={minGames}
+            onChange={(e) => setMinGames(Number(e.target.value))}
+            className="px-2 py-1.5 bg-dark-700 border border-dark-600 rounded text-xs text-white focus:outline-none focus:border-gold"
+          >
+            {[0, 10, 50, 100, 500].map((value) => (
+              <option key={value} value={value}>{value.toLocaleString()} games</option>
+            ))}
+          </select>
+        </label>
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2 max-h-[calc(100vh-220px)] overflow-y-auto pr-1">
         {filtered.map((item) => {

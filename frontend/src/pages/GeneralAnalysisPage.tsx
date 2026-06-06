@@ -5,8 +5,6 @@ import apiClient from "@/api/client";
 import { useApi } from "@/hooks/useApi";
 import MultiSelectDropdown from "@/components/analysis/MultiSelectDropdown";
 import BuildSuggestionCard from "@/components/analysis/BuildSuggestionCard";
-import BuildVariationsRadar from "@/components/analysis/BuildVariationsRadar";
-import SynergyMatrix from "@/components/analysis/SynergyMatrix";
 import TraitActivationChart from "@/components/analysis/TraitActivationChart";
 import Breadcrumb from "@/components/Breadcrumb";
 import type {
@@ -194,16 +192,6 @@ export default function GeneralAnalysisPage() {
         <div className="space-y-6">
           <BuildSuggestionCard recommendations={buildData.recommendations} onChampionClick={handleChampionClick} />
 
-          <div className="grid gap-6 lg:grid-cols-2">
-            <BuildVariationsRadar
-              recommendations={buildData.recommendations}
-            />
-            <SynergyMatrix
-              recommendations={buildData.recommendations}
-              selectedChampions={selectedChampions}
-            />
-          </div>
-
           {championTraits.size > 0 && (
             <TraitActivationChart championTraits={championTraits} />
           )}
@@ -232,21 +220,17 @@ function EmptyState({ hasFilters }: { hasFilters: boolean }) {
       </h3>
       <p className="text-gray-400 text-sm max-w-md mx-auto">
         {hasFilters
-          ? "Click the Analyze button to discover optimal builds, synergies, and trait activations based on your selections."
-          : "Use the filter panel above to select champions and items. We'll provide build suggestions, synergy analysis, and trait breakdowns tailored to your picks."}
+          ? "Click Analyze to view observed item usage and trait statistics for your selections."
+          : "Use the filters above to select champions and items. The results are calculated from processed matches."}
       </p>
       {!hasFilters && (
         <div className="mt-6 flex justify-center gap-6 text-xs text-gray-500">
           <div className="flex items-center gap-1.5">
             <div className="w-2 h-2 rounded-full bg-gold" />
-            Build Suggestions
+            Observed Builds
           </div>
           <div className="flex items-center gap-1.5">
             <div className="w-2 h-2 rounded-full bg-teal" />
-            Synergy Matrix
-          </div>
-          <div className="flex items-center gap-1.5">
-            <div className="w-2 h-2 rounded-full bg-gold" />
             Trait Activation
           </div>
         </div>

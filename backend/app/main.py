@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
-from app.routes import health, players, compositions, champions, items, analysis, recommend
+from app.routes import health, players, compositions, champions, items, analysis, catalog, operations
 from app.services.es_client import close_es_client
 
 @asynccontextmanager
@@ -25,7 +25,9 @@ app.include_router(compositions.router, prefix="/api/compositions", tags=["compo
 app.include_router(champions.router, prefix="/api/champions", tags=["champions"])
 app.include_router(items.router, prefix="/api/items", tags=["items"])
 app.include_router(analysis.router, prefix="/api/analysis", tags=["analysis"])
-app.include_router(recommend.router, prefix="/api/recommend", tags=["recommend"])
+app.include_router(catalog.router, prefix="/api/catalog", tags=["catalog"])
+app.include_router(operations.router, prefix="/api/operations", tags=["operations"])
+app.include_router(operations.router, tags=["metrics"])
 
 @app.get("/")
 async def root():

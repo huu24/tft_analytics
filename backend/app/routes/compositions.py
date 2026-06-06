@@ -8,7 +8,7 @@ router = APIRouter()
 
 @router.get("", response_model=CompListResponse)
 async def list_compositions(
-    min_games: int = Query(10, ge=1, description="Minimum games filter"),
+    min_games: int = Query(10, ge=1, le=10000, description="Minimum games filter"),
     sort_by: str = Query("win_rate", description="Sort field"),
     limit: int = Query(20, ge=1, le=100, description="Number of results"),
     offset: int = Query(0, ge=0, description="Pagination offset"),

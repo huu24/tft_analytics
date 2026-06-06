@@ -18,10 +18,19 @@ x-airflow-common: &airflow-common
     AIRFLOW__CORE__LOAD_EXAMPLES: ${AIRFLOW__CORE__LOAD_EXAMPLES}
     ES_HOST: elasticsearch
     ES_PORT: 9200
+    ES_CLIENT_TIMEOUT: ${ES_CLIENT_TIMEOUT:-300}
+    ES_CLIENT_MAX_RETRIES: ${ES_CLIENT_MAX_RETRIES:-5}
+    ES_ADMIN_TIMEOUT: ${ES_ADMIN_TIMEOUT:-900}
+    ES_ADMIN_RETRIES: ${ES_ADMIN_RETRIES:-5}
     MINIO_ENDPOINT: http://minio:9000
     MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
     MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
     MINIO_BUCKET: ${MINIO_BUCKET:-lakehouse-bucket}
+    SILVER_PATH: ${SILVER_PATH:-s3a://lakehouse-bucket/tft-silver}
+    SILVER_FORMAT: ${SILVER_FORMAT:-parquet}
+    GOLD_PATH: ${GOLD_PATH:-s3a://lakehouse-bucket/tft-gold}
+    ENABLE_GOLD_PARQUET: ${ENABLE_GOLD_PARQUET:-true}
+    SPARK_MASTER: ${SPARK_MASTER:-local[4]}
     POSTGRES_HOST: postgres
     POSTGRES_PORT: 5432
     POSTGRES_DB: ${POSTGRES_DB:-airflow}
@@ -276,7 +285,15 @@ services:
       ES_PORT: 9200
       KAFKA_BROKER: kafka:9092
       MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      MINIO_BUCKET: ${MINIO_BUCKET:-lakehouse-bucket}
       AIRFLOW_URL: http://airflow-webserver:8080
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-airflow}
+      POSTGRES_USER: ${POSTGRES_USER:-airflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-airflow}
       DEBUG: ${DEBUG:-false}
     ports:
       - "8000:8000"
@@ -314,6 +331,7 @@ services:
 
   # ── ML Training ──
   ml-training:
+    profiles: ["ml"]
     build:
       context: .
       dockerfile: ml/Dockerfile
@@ -332,8 +350,101 @@ services:
       elasticsearch:
         condition: service_healthy
 
+  prometheus:
+    profiles: ["monitoring"]
+    image: prom/prometheus:v2.52.0
+    container_name: tft-prometheus
+    networks:
+      - tft-network
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+
+  grafana:
+    profiles: ["monitoring"]
+    image: grafana/grafana:10.4.2
+    container_name: tft-grafana
+    networks:
+      - tft-network
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    depends_on:
+      - prometheus
+
+  spark-master:
+    profiles: ["scale"]
+    image: tft-airflow-spark:2.8.1
+    container_name: tft-spark-master
+    networks:
+      - tft-network
+    environment:
+      SPARK_HOME: /home/airflow/.local/lib/python3.11/site-packages/pyspark
+      PYSPARK_PYTHON: python
+      PYSPARK_DRIVER_PYTHON: python
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - exec /home/airflow/.local/lib/python3.11/site-packages/pyspark/bin/spark-class org.apache.spark.deploy.master.Master --host spark-master --port 7077 --webui-port 8080
+    ports:
+      - "7077:7077"
+      - "8081:8080"
+
+  spark-worker:
+    profiles: ["scale"]
+    image: tft-airflow-spark:2.8.1
+    networks:
+      - tft-network
+    environment:
+      SPARK_HOME: /home/airflow/.local/lib/python3.11/site-packages/pyspark
+      PYSPARK_PYTHON: python
+      PYSPARK_DRIVER_PYTHON: python
+      SPARK_WORKER_CORES: ${SPARK_WORKER_CORES:-2}
+      SPARK_WORKER_MEMORY: ${SPARK_WORKER_MEMORY:-2G}
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - exec /home/airflow/.local/lib/python3.11/site-packages/pyspark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077
+    depends_on:
+      - spark-master
+
+  kafka:
+    profiles: ["scale"]
+    image: bitnami/kafka:3.7
+    container_name: tft-kafka
+    networks:
+      - tft-network
+    environment:
+      KAFKA_CFG_NODE_ID: 1
+      KAFKA_CFG_PROCESS_ROLES: broker,controller
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
+
+  trino:
+    profiles: ["scale"]
+    image: trinodb/trino:449
+    container_name: tft-trino
+    networks:
+      - tft-network
+    environment:
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+    volumes:
+      - ./trino/catalog:/etc/trino/catalog:ro
+    ports:
+      - "8082:8080"
+
   # ── TFT Auto Crawler ──
   crawler:
+    profiles: ["crawl"]
     build:
       context: .
       dockerfile: backend/Dockerfile
@@ -373,3 +484,4 @@ volumes:
   pg-data:
   airflow-logs:
   ml-checkpoints:
+  grafana-data:

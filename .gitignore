@@ -11,6 +11,9 @@ build/
 .venv/
 venv/
 env/
+tft_venv/
+*_venv/
+*/venv/
 
 # Node.js
 node_modules/

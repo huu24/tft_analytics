@@ -13,6 +13,8 @@ const SORT_OPTIONS: { value: SortField; label: string }[] = [
   { value: "top4_rate", label: "Top 4 Rate" },
 ];
 
+const formatGames = (value: number) => new Intl.NumberFormat("en-US").format(value);
+
 export default function CompFilterBar({
   minGames,
   onMinGamesChange,
@@ -29,14 +31,14 @@ export default function CompFilterBar({
           <input
             type="range"
             min={10}
-            max={500}
-            step={10}
+            max={10000}
+            step={50}
             value={minGames}
             onChange={(e) => onMinGamesChange(Number(e.target.value))}
-            className="w-32 accent-gold"
+            className="w-48 accent-gold"
           />
-          <span className="text-sm text-gold font-semibold w-10 text-right">
-            {minGames}
+          <span className="text-sm text-gold font-semibold w-16 text-right">
+            {formatGames(minGames)}
           </span>
         </div>
       </div>

@@ -14,6 +14,7 @@ import ChampionTable from "@/components/player/ChampionTable";
 import TraitTreemap from "@/components/player/TraitTreemap";
 import ItemRadar from "@/components/player/ItemRadar";
 import GameHistoryChart from "@/components/player/GameHistoryChart";
+import { playerLabel } from "@/utils/playerDisplay";
 
 const GAME_COUNTS = [
   { label: "All", value: 0 },
@@ -120,8 +121,11 @@ export default function PlayerProfilePage() {
               </div>
               <div className="min-w-0">
                 <h2 className="text-lg font-bold text-white">
-                  Player Profile
+                  {playerLabel(stats.player_name, "Player Profile")}
                 </h2>
+                <p className="text-xs text-gray-400">
+                  {stats.player_name ? "Riot ID" : "PUUID"}: {stats.player_name ?? stats.puuid}
+                </p>
                 <p className="text-xs text-gray-400">
                   Last updated: {stats.last_updated ? new Date(stats.last_updated).toLocaleDateString() : "N/A"}
                 </p>

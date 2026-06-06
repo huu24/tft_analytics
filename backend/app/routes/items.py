@@ -11,9 +11,10 @@ router = APIRouter()
 async def list_items(
     sort_by: str = Query("total_games", description="Sort field"),
     limit: int = Query(100, ge=1, le=200, description="Number of results"),
+    min_games: int = Query(10, ge=0, description="Minimum sample size"),
     es=Depends(get_es_client),
 ):
-    items, total = await analytics.get_all_items(es, sort_by, limit)
+    items, total = await analytics.get_all_items(es, sort_by, limit, min_games)
     return ItemListResponse(items=items, total=total)
 
 

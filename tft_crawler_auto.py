@@ -227,6 +227,7 @@ def ensure_crawler_tables(conn):
         cur.execute("""
             CREATE TABLE IF NOT EXISTS crawler_players (
                 puuid TEXT PRIMARY KEY,
+                player_name TEXT,
                 region VARCHAR(16),
                 tier VARCHAR(32),
                 last_crawled_at TIMESTAMPTZ,
@@ -240,6 +241,7 @@ def ensure_crawler_tables(conn):
                 crawled_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )
         """)
+        cur.execute("ALTER TABLE crawler_players ADD COLUMN IF NOT EXISTS player_name TEXT")
     conn.commit()
 
 
@@ -290,17 +292,18 @@ def record_uploaded_match(conn, match_id, object_name):
     conn.commit()
 
 
-def record_crawled_player(conn, puuid):
+def record_crawled_player(conn, puuid, player_name=None):
     with conn.cursor() as cur:
         cur.execute(
             """
-            INSERT INTO crawler_players (puuid, last_crawled_at, updated_at)
-            VALUES (%s, NOW(), NOW())
+            INSERT INTO crawler_players (puuid, player_name, last_crawled_at, updated_at)
+            VALUES (%s, %s, NOW(), NOW())
             ON CONFLICT (puuid) DO UPDATE
-            SET last_crawled_at = EXCLUDED.last_crawled_at,
+            SET player_name = COALESCE(EXCLUDED.player_name, crawler_players.player_name),
+                last_crawled_at = EXCLUDED.last_crawled_at,
                 updated_at = EXCLUDED.updated_at
             """,
-            (puuid,),
+            (puuid, player_name),
         )
     conn.commit()
 
@@ -329,7 +332,7 @@ def process_match_data(api_key, rate_limiter, puuids, minio_client, bucket_name,
                 puuid_entry["match_ids"].append(match_id)
 
         puuid_entry["has_been_seen"] = True
-        record_crawled_player(conn, puuid)
+        record_crawled_player(conn, puuid, player_name)
 
         save_state_to_file(puuids, "puuids.json")
         print(f"💾 Đã lưu checkpoint cho người chơi: {player_name}")

@@ -5,6 +5,7 @@ from datetime import datetime
 
 class PlayerStats(BaseModel):
     puuid: str
+    player_name: Optional[str] = None
     total_games: int
     wins: int
     top4_count: int
@@ -48,6 +49,7 @@ class PlayerItemStats(BaseModel):
 
 class PlayerSearchResult(BaseModel):
     puuid: str
+    player_name: Optional[str] = None
     total_games: int
     win_rate: float
     avg_placement: float

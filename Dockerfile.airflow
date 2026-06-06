@@ -11,4 +11,5 @@ RUN pip install --no-cache-dir kafka-python-ng elasticsearch minio psycopg2-bina
 RUN PYSPARK_JARS_DIR=$(python -c "import pyspark; import os; print(os.path.join(os.path.dirname(pyspark.__file__), 'jars'))") && \
     curl -sS -L -o "${PYSPARK_JARS_DIR}/hadoop-aws-3.3.4.jar" "https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-aws/3.3.4/hadoop-aws-3.3.4.jar" && \
     curl -sS -L -o "${PYSPARK_JARS_DIR}/aws-java-sdk-bundle-1.12.262.jar" "https://repo1.maven.org/maven2/com/amazonaws/aws-java-sdk-bundle/1.12.262/aws-java-sdk-bundle-1.12.262.jar" && \
-    curl -sS -L -o "${PYSPARK_JARS_DIR}/elasticsearch-spark-30_2.12-8.13.0.jar" "https://repo1.maven.org/maven2/org/elasticsearch/elasticsearch-spark-30_2.12/8.13.0/elasticsearch-spark-30_2.12-8.13.0.jar"
+    curl -sS -L -o "${PYSPARK_JARS_DIR}/elasticsearch-spark-30_2.12-8.13.0.jar" "https://repo1.maven.org/maven2/org/elasticsearch/elasticsearch-spark-30_2.12/8.13.0/elasticsearch-spark-30_2.12-8.13.0.jar" && \
+    curl -sS -L -o "${PYSPARK_JARS_DIR}/iceberg-spark-runtime-3.5_2.12-1.5.2.jar" "https://repo1.maven.org/maven2/org/apache/iceberg/iceberg-spark-runtime-3.5_2.12/1.5.2/iceberg-spark-runtime-3.5_2.12-1.5.2.jar"

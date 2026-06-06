@@ -1,5 +1,8 @@
 from typing import Any, Dict, List, Optional
 from elasticsearch import AsyncElasticsearch
+import psycopg2
+
+from app.config import settings
 
 
 async def serving_index(es: AsyncElasticsearch, logical_name: str) -> str:
@@ -84,8 +87,113 @@ async def es_count(es: AsyncElasticsearch, index: str, query: Optional[Dict] = N
         return 0
 
 
+def load_active_raw_object_count() -> int:
+    try:
+        conn = psycopg2.connect(
+            host=settings.POSTGRES_HOST,
+            port=settings.POSTGRES_PORT,
+            dbname=settings.POSTGRES_DB,
+            user=settings.POSTGRES_USER,
+            password=settings.POSTGRES_PASSWORD,
+        )
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT raw_object_count
+                    FROM data_versions
+                    WHERE is_active = TRUE
+                    ORDER BY published_at DESC
+                    LIMIT 1
+                    """
+                )
+                row = cur.fetchone()
+                return int(row[0]) if row else 0
+        finally:
+            conn.close()
+    except Exception:
+        return 0
+
+
+def pg_connect():
+    return psycopg2.connect(
+        host=settings.POSTGRES_HOST,
+        port=settings.POSTGRES_PORT,
+        dbname=settings.POSTGRES_DB,
+        user=settings.POSTGRES_USER,
+        password=settings.POSTGRES_PASSWORD,
+    )
+
+
+def load_player_names(puuids: List[str]) -> Dict[str, str]:
+    if not puuids:
+        return {}
+    try:
+        conn = pg_connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT puuid, player_name
+                    FROM crawler_players
+                    WHERE puuid = ANY(%s) AND player_name IS NOT NULL
+                    """,
+                    (puuids,),
+                )
+                return {row[0]: row[1] for row in cur.fetchall()}
+        finally:
+            conn.close()
+    except Exception:
+        return {}
+
+
+def search_player_names(name: str, limit: int) -> Dict[str, str]:
+    try:
+        conn = pg_connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT puuid, player_name
+                    FROM crawler_players
+                    WHERE player_name ILIKE %s
+                    ORDER BY
+                        CASE WHEN player_name ILIKE %s THEN 0 ELSE 1 END,
+                        player_name
+                    LIMIT %s
+                    """,
+                    (f"%{name}%", f"{name}%", limit),
+                )
+                return {row[0]: row[1] for row in cur.fetchall()}
+        finally:
+            conn.close()
+    except Exception:
+        return {}
+
+
+def enrich_player_names(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    names = load_player_names([row["puuid"] for row in rows if row.get("puuid")])
+    for row in rows:
+        row["player_name"] = names.get(row.get("puuid"))
+    return rows
+
+
+def enrich_player_name(row: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    if not row or not row.get("puuid"):
+        return row
+    names = load_player_names([row["puuid"]])
+    row["player_name"] = names.get(row["puuid"])
+    return row
+
+
+def normalize_pick_rate(row: Dict[str, Any], total_matches: int) -> Dict[str, Any]:
+    if total_matches > 0 and "total_games" in row:
+        row["pick_rate"] = row["total_games"] / total_matches
+    return row
+
+
 async def get_player_stats(es: AsyncElasticsearch, puuid: str) -> Optional[Dict]:
-    return await es_get_by_id(es, await serving_index(es, "player_stats"), "puuid", puuid)
+    return enrich_player_name(await es_get_by_id(es, await serving_index(es, "player_stats"), "puuid", puuid))
 
 
 async def list_players(
@@ -105,7 +213,7 @@ async def list_players(
     sort = [{sort_field: {"order": sort_order}}]
     query = {"match_all": {}}
     resp = await es_search(es, await serving_index(es, "player_stats"), query, size=limit, from_=offset, sort=sort)
-    return [hit["_source"] for hit in resp["hits"]["hits"]]
+    return enrich_player_names([hit["_source"] for hit in resp["hits"]["hits"]])
 
 
 async def get_player_champions(es: AsyncElasticsearch, puuid: str) -> List[Dict]:
@@ -133,9 +241,33 @@ async def get_player_items(es: AsyncElasticsearch, puuid: str) -> List[Dict]:
 
 
 async def search_players(es: AsyncElasticsearch, name: str, size: int = 20) -> List[Dict]:
-    query = {"wildcard": {"puuid": f"*{name}*"}}
-    resp = await es_search(es, await serving_index(es, "player_stats"), query, size=size)
-    return [hit["_source"] for hit in resp["hits"]["hits"]]
+    matched_names = search_player_names(name.strip(), size * 5)
+    rows: List[Dict[str, Any]] = []
+    if matched_names:
+        query = {
+            "bool": {
+                "should": [{"term": {"puuid": puuid}} for puuid in matched_names],
+                "minimum_should_match": 1,
+            }
+        }
+        resp = await es_search(
+            es,
+            await serving_index(es, "player_stats"),
+            query,
+            size=size,
+            sort=[{"total_games": {"order": "desc"}}],
+        )
+        rows = [hit["_source"] for hit in resp["hits"]["hits"]]
+        for row in rows:
+            row["player_name"] = matched_names.get(row.get("puuid"))
+
+    if len(rows) < size:
+        query = {"wildcard": {"puuid": f"*{name}*"}}
+        resp = await es_search(es, await serving_index(es, "player_stats"), query, size=size - len(rows))
+        seen = {row.get("puuid") for row in rows}
+        fallback_rows = [hit["_source"] for hit in resp["hits"]["hits"] if hit["_source"].get("puuid") not in seen]
+        rows.extend(enrich_player_names(fallback_rows))
+    return rows[:size]
 
 
 async def get_compositions(
@@ -178,19 +310,22 @@ async def get_all_champions(
     es: AsyncElasticsearch,
     sort_by: str = "total_games",
     limit: int = 100,
+    min_games: int = 10,
 ) -> tuple[List[Dict], int]:
     sort_field = sort_by if sort_by in ("win_rate", "top4_rate", "avg_placement", "total_games", "pick_rate") else "total_games"
     sort_order = "asc" if sort_field == "avg_placement" else "desc"
     resp = await es_search(
-        es, await serving_index(es, "champion_stats"), {"match_all": {}}, size=limit,
+        es, await serving_index(es, "champion_stats"), {"range": {"total_games": {"gte": min_games}}}, size=limit,
         sort=[{sort_field: {"order": sort_order}}],
     )
     total = resp["hits"]["total"]["value"]
     items = []
+    total_matches = load_active_raw_object_count()
     for hit in resp["hits"]["hits"]:
         src = hit["_source"]
         if "character_id" in src and "champion_id" not in src:
             src["champion_id"] = src["character_id"]
+        normalize_pick_rate(src, total_matches)
         items.append(src)
     return items, total
 
@@ -239,15 +374,19 @@ async def get_all_items(
     es: AsyncElasticsearch,
     sort_by: str = "total_games",
     limit: int = 100,
+    min_games: int = 10,
 ) -> tuple[List[Dict], int]:
     sort_field = sort_by if sort_by in ("win_rate", "top4_rate", "total_games", "avg_placement") else "total_games"
     sort_order = "asc" if sort_field == "avg_placement" else "desc"
     resp = await es_search(
-        es, await serving_index(es, "item_stats"), {"match_all": {}}, size=limit,
+        es, await serving_index(es, "item_stats"), {"range": {"total_games": {"gte": min_games}}}, size=limit,
         sort=[{sort_field: {"order": sort_order}}],
     )
     total = resp["hits"]["total"]["value"]
     items = [hit["_source"] for hit in resp["hits"]["hits"]]
+    total_matches = load_active_raw_object_count()
+    for item in items:
+        normalize_pick_rate(item, total_matches)
     return items, total
 
 
@@ -305,9 +444,10 @@ async def get_build_recommendations(
 
 async def get_meta_overview(es: AsyncElasticsearch) -> Dict:
     player_count = await es_count(es, await serving_index(es, "player_stats"))
+    total_matches = load_active_raw_object_count()
 
     champ_resp = await es_search(
-        es, await serving_index(es, "champion_stats"), {"match_all": {}}, size=5,
+        es, await serving_index(es, "champion_stats"), {"range": {"total_games": {"gte": 50}}}, size=5,
         sort=[{"win_rate": {"order": "desc"}}],
     )
     top_champions = []
@@ -315,10 +455,11 @@ async def get_meta_overview(es: AsyncElasticsearch) -> Dict:
         src = hit["_source"]
         if "character_id" in src and "champion_id" not in src:
             src["champion_id"] = src["character_id"]
+        normalize_pick_rate(src, total_matches)
         top_champions.append(src)
 
     comp_resp = await es_search(
-        es, await serving_index(es, "comp_meta"), {"match_all": {}}, size=5,
+        es, await serving_index(es, "comp_meta"), {"range": {"total_games": {"gte": 10}}}, size=5,
         sort=[{"win_rate": {"order": "desc"}}],
     )
     top_compositions = []
@@ -333,10 +474,8 @@ async def get_meta_overview(es: AsyncElasticsearch) -> Dict:
         sort=[{"total_games": {"order": "desc"}}],
     )
     top_items = [hit["_source"] for hit in item_resp["hits"]["hits"]]
-
-    total_matches = 0
-    for champ in top_champions:
-        total_matches = max(total_matches, champ.get("raw_match_count", champ.get("total_games", 0)))
+    for item in top_items:
+        normalize_pick_rate(item, total_matches)
 
     return {
         "total_players": player_count,

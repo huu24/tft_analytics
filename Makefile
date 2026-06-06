@@ -1,4 +1,4 @@
-.PHONY: up down logs health init-es init-metadata etl setup down-v
+.PHONY: up down logs health init-es init-metadata etl setup down-v monitoring scale backup rollback republish-gold cleanup-gold
 
 up:
 	docker compose up -d --build
@@ -31,6 +31,26 @@ init-metadata:
 
 etl:
 	docker compose exec airflow-webserver airflow dags trigger tft_analytics_etl
+
+monitoring:
+	docker-compose --profile monitoring up -d prometheus grafana
+
+scale:
+	docker-compose --profile scale up -d --scale spark-worker=3 spark-master spark-worker
+
+backup:
+	./scripts/backup_metadata.sh
+
+rollback:
+	@test -n "$(VERSION)" || (echo "Usage: make rollback VERSION=vYYYYMMDDHHMMSSffffff" && exit 1)
+	docker compose run --rm -v $(CURDIR)/scripts:/app/scripts backend python scripts/rollback_es.py $(VERSION)
+
+republish-gold:
+	@test -n "$(VERSION)" || (echo "Usage: make republish-gold VERSION=vYYYYMMDDHHMMSSffffff" && exit 1)
+	docker-compose run --rm -e REPUBLISH_DATA_VERSION=$(VERSION) airflow-worker python /opt/airflow/etl/spark_jobs/tft_etl.py
+
+cleanup-gold:
+	docker compose run --rm -v $(CURDIR)/scripts:/app/scripts backend python scripts/cleanup_gold.py --retention $${RETENTION:-2}
 
 setup:
 	@echo "=== First-time setup ==="

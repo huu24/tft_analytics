@@ -1,5 +1,6 @@
 export interface PlayerStats {
   puuid: string;
+  player_name: string | null;
   total_games: number;
   wins: number;
   top4_count: number;
@@ -43,6 +44,7 @@ export interface PlayerItemStats {
 
 export interface PlayerSearchResult {
   puuid: string;
+  player_name: string | null;
   total_games: number;
   win_rate: number;
   avg_placement: number;
